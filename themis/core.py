@@ -237,13 +237,6 @@ def build_themis_core(
         f"Risk tolerance: {risk_tolerance} | Time horizon: {time_horizon}"
     )
 
-    # Validate before creating
-    print("\nValidating THEMIS CORE workflow structure...")
-    validation = client._parse(client.call_tool(
-        "validate_workflow", {"nodes": nodes, "edges": edges}
-    ))
-    print(f"Validation: {json.dumps(validation, indent=2, default=str)[:400]}")
-
     # Create
     print(f"\nCreating THEMIS CORE...")
     result = client.create_workflow(
@@ -255,6 +248,14 @@ def build_themis_core(
     )
     workflow_id  = result.get("id", "")
     workflow_url = f"https://app.keeperhub.com/workflows/{workflow_id}"
+
+    # Validate AFTER create — validate_workflow requires an existing workflowId
+    # Self-Observing Equation: the workflow proves itself by existing and being valid
+    print(f"\nValidating THEMIS CORE (Self-Observing Equation)...")
+    validation = client._parse(client.call_tool(
+        "validate_workflow", {"workflowId": workflow_id, "deepCheck": True}
+    ))
+    print(f"Validation: {json.dumps(validation, indent=2, default=str)[:400]}")
 
     print(f"\n⚖️  THEMIS CORE deployed.")
     print(f"   Workflow ID:  {workflow_id}")

@@ -139,12 +139,6 @@ def build_themis_guardian(
         f"Guardian for: {position_owner} | Safe: {safe_address}"
     )
 
-    print("\nValidating THEMIS GUARDIAN...")
-    validation = client._parse(client.call_tool(
-        "validate_workflow", {"nodes": nodes, "edges": edges}
-    ))
-    print(f"Validation: {json.dumps(validation, indent=2, default=str)[:400]}")
-
     print(f"\nCreating THEMIS GUARDIAN...")
     result = client.create_workflow(
         name=name,
@@ -155,6 +149,13 @@ def build_themis_guardian(
     )
     workflow_id  = result.get("id", "")
     workflow_url = f"https://app.keeperhub.com/workflows/{workflow_id}"
+
+    # Validate after create (requires workflowId)
+    print(f"\nValidating THEMIS GUARDIAN...")
+    validation = client._parse(client.call_tool(
+        "validate_workflow", {"workflowId": workflow_id, "deepCheck": True}
+    ))
+    print(f"Validation: {json.dumps(validation, indent=2, default=str)[:400]}")
 
     print(f"\n🛡️  THEMIS GUARDIAN deployed.")
     print(f"   Workflow ID:    {workflow_id}")

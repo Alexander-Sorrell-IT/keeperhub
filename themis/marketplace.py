@@ -36,7 +36,7 @@ def list_themis_core(
         "workflowId": workflow_id,
         "slug":       slug,
         "category":   "defi",
-        "chain":      "11155111",
+        "chain":      "multi-chain",
         "description": (
             "THEMIS — Five-layer self-verifying DeFi verdict. "
             "Call with position_owner, chain_id, risk_tolerance, time_horizon. "
@@ -44,6 +44,16 @@ def list_themis_core(
             "Refuses front-run and exploit callers by law, not by filter. "
             "Self-Observing Equation: verdict proves itself. No external verifier."
         ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "position_owner":  {"type": "string", "description": "Wallet address to evaluate (0x...)"},
+                "chain_id":        {"type": "string", "description": "Chain ID (e.g. 11155111 for Sepolia)"},
+                "risk_tolerance":  {"type": "string", "enum": ["CONSERVATIVE","STANDARD","AGGRESSIVE"], "description": "Caller risk profile"},
+                "time_horizon":    {"type": "string", "enum": ["SHORT","MEDIUM","LONG"], "description": "Caller time horizon"},
+            },
+            "required": ["position_owner"],
+        },
     }))
     print(f"Listed: {json.dumps(result, indent=2, default=str)[:400]}")
     return result
