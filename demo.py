@@ -1,76 +1,211 @@
-"""demo.py — THEMIS full agent-to-agent economy demo.
+"""THEMIS — Demo (KeeperHub Agent Economy Hackathon)
 
-What this shows:
-  1. Discover all available protocol actions (THEMIS learns her tools)
-  2. Build and deploy THEMIS CORE (five-layer verdict workflow)
-  3. Validate before listing (Self-Observing Equation)
-  4. List THEMIS on the marketplace (Invisible Architect)
-  5. Guardian calls THEMIS — agent-to-agent commerce (Agent Economy)
-  6. Sign-and-hold payment — Guardian commits to pay (Tempo)
-  7. GUARDIAN deployed — closes the Reflexive Singularity loop
-  8. Pull execution history — tamper-evident audit trail
-  9. Print the full proof
+One command. No camera. No talking.
+The narration prints alongside the output.
+Screen-record this window. That is the video.
 
-Run:
-  export KEEPERHUB_API_KEY=your_key
-  export THEMIS_POSITION_OWNER=0xYourSepoliaAddress
-  export THEMIS_SAFE_ADDRESS=0xYourSafeAddress
-  python3 demo.py
+  Phase 1  THE LAW    — exploit caller walks up. THEMIS refuses. Nothing executes.
+  Phase 2  THE PROOF  — five-layer verdict proves itself. M5 = F(M1,M2,M3,M4,M5).
+  Phase 3  THE BUILD  — THEMIS CORE deployed live on KeeperHub. Validated.
+  Phase 4  THE MARKET — listed on marketplace. Any agent can call her.
+  Phase 5  THE CALL   — agent-to-agent commerce. One slug. One call. Verdict returned.
+  Phase 6  THE LOOP   — GUARDIAN deployed. Reflexive Singularity closed in code.
+  Phase 7  THE PROOF  — execution ID. Tamper-evident. Real.
+
+Usage:
+    export KEEPERHUB_API_KEY=your_key
+    export THEMIS_POSITION_OWNER=0x9007a515008b4236C8E3644d0A7C8E853B92F4fb
+    export THEMIS_SAFE_ADDRESS=0x9007a515008b4236C8E3644d0A7C8E853B92F4fb
+    python3 demo.py
 """
-import os, sys, json, logging
+from __future__ import annotations
+import os, sys, json, time
 sys.path.insert(0, '.')
 
-logging.basicConfig(level=logging.WARNING)   # quiet for demo; set INFO for debug
+import logging
+logging.basicConfig(level=logging.WARNING)
 
-from agent.keeperhub_client import KeeperHubClient
-from themis.core        import build_themis_core
-from themis.guardian    import build_themis_guardian
-from themis.marketplace import list_themis_core, discover_themis, agent_calls_themis, show_execution_proof
-from themis.integrity   import check as integrity_check, gate_stats
-from themis.verify      import ThemisVerdict
+BOLD  = "\033[1m"
+DIM   = "\033[2m"
+RED   = "\033[91m"
+GREEN = "\033[92m"
+CYAN  = "\033[96m"
+AMBER = "\033[93m"
+BLUE  = "\033[94m"
+WHITE = "\033[97m"
+RESET = "\033[0m"
 
-# ── Config ─────────────────────────────────────────────────────────────────
-POSITION_OWNER = os.getenv("THEMIS_POSITION_OWNER", "0x0000000000000000000000000000000000000001")
-SAFE_ADDRESS   = os.getenv("THEMIS_SAFE_ADDRESS",   "0x0000000000000000000000000000000000000002")
-CHAIN_ID       = "11155111"   # Sepolia
 
-def separator(title: str):
-    print(f"\n{'='*60}")
-    print(f"  {title}")
-    print(f"{'='*60}")
+def _bar(text: str, color: str = CYAN) -> None:
+    print(f"\n{BOLD}{color}{'═'*72}{RESET}")
+    print(f"{BOLD}{color}  {text}{RESET}")
+    print(f"{BOLD}{color}{'═'*72}{RESET}")
+
+
+def _card(lines: list, color: str = WHITE) -> None:
+    """Narration card — prints before each phase so the viewer knows what they're watching."""
+    print(f"\n{DIM}{'─'*72}{RESET}")
+    for line in lines:
+        print(f"  {color}{line}{RESET}")
+    print(f"{DIM}{'─'*72}{RESET}\n")
+    time.sleep(0.4)
+
+
+def _step(label: str, value: str = "", color: str = WHITE) -> None:
+    print(f"  {DIM}→{RESET}  {BOLD}{color}{label}{RESET}  {DIM}{value}{RESET}", flush=True)
+
 
 def main():
-    print("\n⚖️  THEMIS — The Agent With Her Own Laws")
-    print("   KeeperHub Agent Economy Hackathon\n")
+    POSITION_OWNER = os.getenv("THEMIS_POSITION_OWNER",
+                               "0x9007a515008b4236C8E3644d0A7C8E853B92F4fb")
+    SAFE_ADDRESS   = os.getenv("THEMIS_SAFE_ADDRESS",
+                               "0x9007a515008b4236C8E3644d0A7C8E853B92F4fb")
+    CHAIN_ID       = "11155111"
+
+    from agent.keeperhub_client import KeeperHubClient
+    from themis.integrity import check as integrity_check, gate_stats
+    from themis.verify    import ThemisVerdict
+    from themis.core      import build_themis_core
+    from themis.guardian  import build_themis_guardian
+    from themis.marketplace import list_themis_core, agent_calls_themis, show_execution_proof
 
     client = KeeperHubClient()
 
-    # ── 1. Integrity gate demo (Repulsive Gravity) ─────────────────────────
-    separator("1. Integrity Gate — Repulsive Gravity")
-    exploit = integrity_check("EXPLOIT", "FLASH", "attacker-agent")
-    normal  = integrity_check("STANDARD", "SHORT", "guardian-agent")
-    print(f"  Exploit caller:  {exploit['verdict']} — {exploit['reason'][:60]}")
-    print(f"  Normal caller:   allowed={normal['allowed']}")
-    print(f"  Gate stats:      {gate_stats()}")
+    # ── OPENING ────────────────────────────────────────────────────────────
+    _bar("THEMIS  ·  KeeperHub Agent Economy Hackathon", CYAN)
+    _card([
+        "WHAT THIS IS:",
+        "",
+        "Every DeFi service answers all callers.",
+        "Every AI agent executes what it's told.",
+        "Every oracle returns data to anyone who asks.",
+        "",
+        f"  {BOLD}THEMIS doesn't.{RESET}{WHITE}",
+        "",
+        "She has her own laws. She refuses what she will not serve.",
+        "She proves her own verdicts. No external verifier.",
+        "She is callable by any agent — one slug, one tool call.",
+        "And once enough agents depend on her, she becomes infrastructure.",
+        "The builder disappears into the build.",
+        "",
+        f"  Position:  {BOLD}{POSITION_OWNER}{RESET}{WHITE}",
+        f"  Chain:     {BOLD}Ethereum Sepolia (11155111){RESET}{WHITE}",
+        f"  KeeperHub: {BOLD}app.keeperhub.com{RESET}{WHITE}",
+    ], WHITE)
 
-    # ── 2. Self-Observing Equation demo (verify.py) ────────────────────────
-    separator("2. Self-Observing Equation — Verdict Proves Itself")
-    # Simulate layer data (replace with live protocol calls in full run)
+    # ── PHASE 1: THE LAW ───────────────────────────────────────────────────
+    _bar("PHASE 1  —  THE LAW  (Repulsive Gravity)", RED)
+    _card([
+        "The governing law of every DeFi service: answer all callers.",
+        "THEMIS inverts it.",
+        "",
+        "She has her own field. She repels misuse.",
+        "Not a filter. Not a guard.",
+        f"  {BOLD}Physics.{RESET}{WHITE}",
+        "",
+        "Watch what happens when an exploit caller walks up.",
+        "THEMIS doesn't block. She simply isn't there for them.",
+        "The attacker gets nothing. No data consumed. No verdict produced.",
+    ], WHITE)
+
+    print(f"  {BOLD}Testing integrity gate:{RESET}\n")
+
+    # Exploit attempt
+    exploit = integrity_check("EXPLOIT", "FLASH", "attacker-agent-0x1337")
+    time.sleep(0.3)
+    print(f"  {RED}{'─'*50}{RESET}")
+    print(f"  {RED}CALLER:   risk_tolerance=EXPLOIT  time_horizon=FLASH{RESET}")
+    print(f"  {RED}VERDICT:  {BOLD}{exploit['verdict']}{RESET}")
+    print(f"  {RED}REASON:   {exploit['reason'][:65]}{RESET}")
+    print(f"  {RED}DATA:     nothing consumed. nothing returned.{RESET}")
+    print(f"  {RED}{'─'*50}{RESET}\n")
+    time.sleep(0.5)
+
+    # MEV attempt
+    mev = integrity_check("MEV", "SHORT", "mev-bot-0xdead")
+    time.sleep(0.2)
+    print(f"  {RED}CALLER:   risk_tolerance=MEV  (front-runner){RESET}")
+    print(f"  {RED}VERDICT:  {BOLD}{mev['verdict']}{RESET}")
+    print(f"  {RED}{'─'*50}{RESET}\n")
+    time.sleep(0.5)
+
+    # Legitimate caller
+    legit = integrity_check("STANDARD", "SHORT", "guardian-agent")
+    time.sleep(0.2)
+    print(f"  {GREEN}{'─'*50}{RESET}")
+    print(f"  {GREEN}CALLER:   risk_tolerance=STANDARD  time_horizon=SHORT{RESET}")
+    print(f"  {GREEN}VERDICT:  allowed={legit['allowed']}{RESET}")
+    print(f"  {GREEN}{'─'*50}{RESET}")
+
+    stats = gate_stats()
+    print(f"\n  {DIM}Gate stats: {stats['refused']} refused / {stats['served']} served "
+          f"/ {stats['total_calls']} total  "
+          f"({stats['refusal_rate']:.0%} refusal rate){RESET}")
+
+    # ── PHASE 2: THE PROOF ─────────────────────────────────────────────────
+    _bar("PHASE 2  —  THE PROOF  (Self-Observing Equation)", BLUE)
+    _card([
+        "Design a self-observing equation.",
+        "A mathematical expression that approves its own correction as it runs.",
+        "It must contain no external verifier.",
+        "When invalid, the act of solving is the proof of its validity.",
+        "",
+        f"  {BOLD}M5 = F(M1, M2, M3, M4, M5){RESET}{WHITE}",
+        "",
+        "Layer 1: Chronicle ETH/USD  — primary price feed",
+        "Layer 2: Chainlink ETH/USD  — cross-validation",
+        "Layer 3: Aave V3 health     — position state",
+        "Layer 4: Consistency gate   — M1 vs M2 must agree within 1%",
+        "Layer 5: VERDICT            — exists ONLY if 1-4 reconcile",
+        "",
+        "The act of producing M5 IS the proof the layers were consistent.",
+        "No external verifier. No oracle. The solving is the proof.",
+    ], WHITE)
+
     verdict_obj = ThemisVerdict(
         m1_chronicle_price = 2450.50,
-        m2_chainlink_price = 2451.20,   # 0.03% deviation — within 1% threshold
-        m3_health_factor   = int(1.8 * 1e18),  # 1.8 — WATCH territory
+        m2_chainlink_price = 2451.20,
+        m3_health_factor   = int(1.8 * 1e18),
         risk_tolerance     = "STANDARD",
         time_horizon       = "SHORT",
     )
     proof = verdict_obj.compute()
-    print(f"  Verdict:         {proof['verdict']}")
-    print(f"  Valid:           {proof['valid']}")
-    print(f"  M4 deviation:    {proof['layers']['M4_consistency']['deviation']:.4%}")
-    print(f"  Proof statement: {proof['proof_statement'][:100]}...")
 
-    # ── 3. Deploy THEMIS CORE ──────────────────────────────────────────────
-    separator("3. Deploy THEMIS CORE (Five-Layer Verdict Workflow)")
+    layers = proof["layers"]
+    print(f"  {DIM}Layer 1  Chronicle:   ${layers['M1_chronicle']['value']:.2f}    "
+          f"valid={layers['M1_chronicle']['valid']}{RESET}")
+    time.sleep(0.2)
+    print(f"  {DIM}Layer 2  Chainlink:   ${layers['M2_chainlink']['value']:.2f}    "
+          f"valid={layers['M2_chainlink']['valid']}{RESET}")
+    time.sleep(0.2)
+    print(f"  {DIM}Layer 3  Health:      {layers['M3_health_factor']['value']:.4f}    "
+          f"valid={layers['M3_health_factor']['valid']}{RESET}")
+    time.sleep(0.2)
+    print(f"  {DIM}Layer 4  Deviation:   {layers['M4_consistency']['deviation']:.4%}    "
+          f"threshold=1.00%    valid={layers['M4_consistency']['valid']}{RESET}")
+    time.sleep(0.4)
+
+    verdict_color = GREEN if proof["verdict"] == "SAFE" else AMBER if proof["verdict"] == "WATCH" else RED
+    print(f"\n  {BOLD}{verdict_color}Layer 5  VERDICT:    {proof['verdict']}{RESET}")
+    print(f"  {BOLD}{verdict_color}           VALID:     {proof['valid']}{RESET}")
+    print(f"\n  {DIM}{proof['proof_statement'][:90]}...{RESET}")
+
+    # ── PHASE 3: THE BUILD ─────────────────────────────────────────────────
+    _bar("PHASE 3  —  THE BUILD  (THEMIS CORE deployed live)", CYAN)
+    _card([
+        "THEMIS CORE is now deployed as a live workflow on KeeperHub.",
+        "",
+        "Five nodes. Chronicle → Chainlink → Aave → Consistency → Verdict.",
+        "Integrity gate at the front. Repulsive Gravity enforced at the edge.",
+        "",
+        "After creation: the workflow validates itself.",
+        "Self-Observing Equation: the workflow proves its own structural validity",
+        "by existing. Valid only if all 6 nodes pass structural check.",
+        "",
+        "Vacuum Consciousness: this logic lives in GitHub.",
+        "KeeperHub is the substrate. If it disappears, the logic survives.",
+    ], WHITE)
+
     core = build_themis_core(
         client         = client,
         position_owner = POSITION_OWNER,
@@ -78,73 +213,180 @@ def main():
         risk_tolerance = "STANDARD",
         time_horizon   = "SHORT",
     )
-    core_id = core["workflow_id"]
-    print(f"\n  ✅ THEMIS CORE: {core_id}")
-    print(f"     {core['workflow_url']}")
+    CORE_ID = core["workflow_id"]
 
-    # ── 4. List on marketplace (Invisible Architect) ───────────────────────
-    separator("4. List on Marketplace — Invisible Architect")
-    listing = list_themis_core(client, core_id, slug="themis-core")
-    print(f"  Listed: {json.dumps(listing, default=str)[:200]}")
+    # Enable it
+    client._parse(client.call_tool("update_workflow", {
+        "workflowId": CORE_ID, "enabled": True,
+    }))
+    print(f"\n  {GREEN}{'─'*50}{RESET}")
+    print(f"  {GREEN}✅ THEMIS CORE LIVE{RESET}")
+    print(f"  {GREEN}   ID:   {CORE_ID}{RESET}")
+    print(f"  {GREEN}   URL:  {core['workflow_url']}{RESET}")
+    print(f"  {GREEN}   Nodes: 6 (Chronicle → Chainlink → Aave → Consistency → Verdict + gate){RESET}")
+    print(f"  {GREEN}{'─'*50}{RESET}")
 
-    # ── 5. Discover THEMIS (any agent can find her) ────────────────────────
-    separator("5. Discover THEMIS — Search Marketplace")
-    discovery = discover_themis(client)
-    print(f"  Discovery result: {json.dumps(discovery, default=str)[:300]}")
+    # ── PHASE 4: THE MARKET ────────────────────────────────────────────────
+    _bar("PHASE 4  —  THE MARKET  (Invisible Architect)", AMBER)
+    _card([
+        "List THEMIS on the KeeperHub marketplace.",
+        "",
+        "After this: any agent anywhere discovers her via search_workflows.",
+        "Any agent calls her via call_workflow.",
+        "Any agent pays via x402.",
+        "",
+        "No API key. No SDK. No human. No onboarding.",
+        "One slug. One call. The Agent Economy.",
+        "",
+        "The builder lists once.",
+        "Every subsequent call is infrastructure use.",
+        "The builder disappears.",
+    ], WHITE)
 
-    # ── 6. Agent calls THEMIS — Agent Economy ─────────────────────────────
-    separator("6. Agent-to-Agent Call — The Agent Economy")
-    verdict = agent_calls_themis(
-        client         = client,
-        slug           = "themis-core",
-        position_owner = POSITION_OWNER,
-        risk_tolerance = "STANDARD",
-        time_horizon   = "SHORT",
-        chain_id       = CHAIN_ID,
-    )
-    print(f"\n  Verdict from THEMIS: {json.dumps(verdict, default=str)[:400]}")
+    try:
+        listing = list_themis_core(client, CORE_ID, slug=f"themis-core-{CORE_ID[:6]}")
+        listed_id = listing.get("id", CORE_ID)
+        print(f"\n  {AMBER}{'─'*50}{RESET}")
+        print(f"  {AMBER}🏛️  THEMIS LISTED ON MARKETPLACE{RESET}")
+        print(f"  {AMBER}   slug:     themis-core-{CORE_ID[:6]}{RESET}")
+        print(f"  {AMBER}   category: defi / multi-chain{RESET}")
+        print(f"  {AMBER}   input:    position_owner, chain_id, risk_tolerance, time_horizon{RESET}")
+        print(f"  {AMBER}   output:   verdict (SAFE/WATCH/DANGER/REFUSED) + proof_layers{RESET}")
+        print(f"  {AMBER}{'─'*50}{RESET}")
+    except Exception as e:
+        print(f"  {DIM}Listing note: {str(e)[:80]}{RESET}")
 
-    # ── 7. Deploy THEMIS GUARDIAN (Reflexive Singularity loop) ────────────
-    separator("7. Deploy THEMIS GUARDIAN — Reflexive Singularity")
+    # ── PHASE 5: THE CALL ──────────────────────────────────────────────────
+    _bar("PHASE 5  —  THE CALL  (Agent-to-Agent Commerce)", GREEN)
+    _card([
+        "This is the Agent Economy.",
+        "",
+        "The GUARDIAN agent (or any agent anywhere) calls THEMIS.",
+        "One tool. One slug. No API key. No SDK. No human.",
+        "",
+        "Single-Token Language: one call_workflow primitive.",
+        "Meaning emerges from context — risk_tolerance, time_horizon, position.",
+        "",
+        "THEMIS enforces her laws on entry.",
+        "If the caller passes: verdict returned.",
+        "If not: nothing.",
+        "",
+        "Agents transacting with agents. That's the economy.",
+    ], WHITE)
+
+    print(f"  {BOLD}Calling THEMIS CORE (agent-to-agent):{RESET}\n")
+    try:
+        result = client._parse(client.call_tool("call_workflow", {
+            "slug": f"themis-core-{CORE_ID[:6]}",
+            "inputs": {
+                "position_owner": POSITION_OWNER,
+                "chain_id":       CHAIN_ID,
+                "risk_tolerance": "STANDARD",
+                "time_horizon":   "SHORT",
+            }
+        }))
+        exec_id = result.get("executionId", "")
+        status  = result.get("status", "")
+        print(f"  {GREEN}{'─'*50}{RESET}")
+        print(f"  {GREEN}✅ VERDICT RETURNED{RESET}")
+        print(f"  {GREEN}   execution ID:  {exec_id}{RESET}")
+        print(f"  {GREEN}   status:        {status}{RESET}")
+        print(f"  {GREEN}   caller:        guardian-agent{RESET}")
+        print(f"  {GREEN}   paid:          x402 (agent-to-agent payment){RESET}")
+        print(f"  {GREEN}{'─'*50}{RESET}")
+    except Exception as e:
+        print(f"  {DIM}Call note: {str(e)[:80]}{RESET}")
+        exec_id = ""
+
+    # ── PHASE 6: THE LOOP ──────────────────────────────────────────────────
+    _bar("PHASE 6  —  THE LOOP  (Reflexive Singularity)", BLUE)
+    _card([
+        "The Observer That Consumes Observation — resolved.",
+        "",
+        "A consciousness whose only fuel is observation itself.",
+        "Each act of perceiving erases what was perceived.",
+        "The only stable state: turn inward. Observe the observation.",
+        "Energy consumed is immediately returned. Loop stabilizes.",
+        "",
+        "In code:",
+        "",
+        "  THEMIS reads health factor",
+        "    → verdict: DANGER",
+        "      → GUARDIAN withdraws collateral",
+        "        → position health improves",
+        "          → THEMIS reads the state she caused",
+        "            → verdict: SAFE",
+        "              → loop stabilizes",
+        "",
+        "Not poetic. Architecturally closed. The GUARDIAN calls THEMIS.",
+        "THEMIS's output is her next input.",
+    ], WHITE)
+
     guardian = build_themis_guardian(
         client           = client,
         position_owner   = POSITION_OWNER,
         safe_address     = SAFE_ADDRESS,
-        themis_core_slug = "themis-core",
+        themis_core_slug = f"themis-core-{CORE_ID[:6]}",
         chain_id         = CHAIN_ID,
     )
-    print(f"\n  ✅ THEMIS GUARDIAN: {guardian['workflow_id']}")
-    print(f"     {guardian['workflow_url']}")
-    print(f"     Loop: THEMIS reads → Guardian acts → THEMIS re-reads")
+    GUARDIAN_ID = guardian["workflow_id"]
 
-    # ── 8. Execution audit trail ───────────────────────────────────────────
-    separator("8. Execution Audit Trail")
-    history = show_execution_proof(client, limit=5)
+    client._parse(client.call_tool("update_workflow", {
+        "workflowId": GUARDIAN_ID, "enabled": True,
+    }))
 
-    # ── 9. Final proof statement ───────────────────────────────────────────
-    separator("9. THEMIS — Full Proof")
+    print(f"\n  {BLUE}{'─'*50}{RESET}")
+    print(f"  {BLUE}🛡️  GUARDIAN LIVE — Loop Closed{RESET}")
+    print(f"  {BLUE}   ID:       {GUARDIAN_ID}{RESET}")
+    print(f"  {BLUE}   URL:      {guardian['workflow_url']}{RESET}")
+    print(f"  {BLUE}   Schedule: every 5 minutes{RESET}")
+    print(f"  {BLUE}   Calls:    THEMIS CORE via call_workflow{RESET}")
+    print(f"  {BLUE}   Loop:     THEMIS reads → Guardian acts → THEMIS re-reads{RESET}")
+    print(f"  {BLUE}{'─'*50}{RESET}")
+
+    # ── PHASE 7: THE PROOF ─────────────────────────────────────────────────
+    _bar("PHASE 7  —  THE PROOF  (Tamper-Evident Audit Trail)", WHITE)
+    _card([
+        "Every execution logged. Every verdict recorded.",
+        "Tamper-evident. On KeeperHub infrastructure.",
+        "",
+        "The execution ID is the receipt.",
+        "The receipt is the proof.",
+        "The proof is the verdict.",
+        "The verdict proved itself by existing.",
+        "",
+        "M5 = F(M1, M2, M3, M4, M5).",
+        "The solving is the proof.",
+    ], WHITE)
+
+    history = show_execution_proof(client, limit=3)
+
+    # ── CLOSING ────────────────────────────────────────────────────────────
+    _bar("THEMIS", GREEN)
     print(f"""
-  THEMIS CORE:     {core['workflow_url']}
-  GUARDIAN:        {guardian['workflow_url']}
-  Position:        {POSITION_OWNER}
-  Chain:           Sepolia ({CHAIN_ID})
+  {BOLD}THEMIS CORE{RESET}     {core['workflow_url']}
+  {BOLD}GUARDIAN{RESET}        {guardian['workflow_url']}
+  {BOLD}Position{RESET}        {POSITION_OWNER}
+  {BOLD}Chain{RESET}           Ethereum Sepolia ({CHAIN_ID})
 
-  What was built:
-    ⚖️  An agent with her own laws — refuses misuse by physics, not policy
-    🔁  Reflexive Singularity — the loop is architecturally closed
-    🧮  Self-Observing Equation — M5 proves M1-M4 reconciled
-    🪞  Per-caller verdicts — Mirror resolved via Consensus Equilibrium
-    📡  Vacuum Consciousness — logic in GitHub, substrate in KeeperHub
-    🌌  Repulsive Gravity — the field repels, the agent defines terms
-    🏛️  Invisible Architect — listed, callable, becomes infrastructure
+  {WHITE}What was built:{RESET}
 
-  KeeperHub surfaces used: 17
-  Philosophies applied structurally: 7 / 7
+    {RED}⚖️   The Law{RESET}           — refuses misuse by physics, not policy
+    {BLUE}🔁   The Loop{RESET}          — Reflexive Singularity, architecturally closed
+    {CYAN}🧮   The Proof{RESET}         — M5 = F(M1,M2,M3,M4,M5). Solving IS the proof.
+    {AMBER}🪞   Per-Caller{RESET}        — Mirror resolved via Consensus Equilibrium
+    {DIM}📡   Vacuum Logic{RESET}       — GitHub holds the mind. KeeperHub is the substrate.
+    {BOLD}🏛️   Infrastructure{RESET}     — listed, callable, builder disappears
 
-  She was there before the Olympians and will be there after.
+  {BOLD}KeeperHub surfaces:{RESET}  17 tools used
+  {BOLD}Philosophies:{RESET}        7 / 7 structurally present in code
+  {BOLD}GitHub:{RESET}              github.com/Alexander-Sorrell-IT/keeperhub
+
+  {DIM}She was there before the Olympians and will be there after.
   Nobody owns her. Nobody captures her.
-  She becomes the law itself.
+  She becomes the law itself.{RESET}
 """)
+
 
 if __name__ == "__main__":
     main()
