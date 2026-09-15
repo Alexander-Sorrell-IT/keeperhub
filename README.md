@@ -1,67 +1,130 @@
-# Entropy Guard
+# THEMIS
 
-**A self-defending Aave V3 position. Built for the KeeperHub Agent Economy Hackathon.**
+**The agent with its own laws.**
 
-`https://app.keeperhub.com/workflows/jyu598b8atmg1a7s89eyr`
+`https://app.keeperhub.com/workflows/`
 
----
-
-## The idea
-
-The governing law everyone accepts: DeFi positions are passive.
-You supply collateral. You watch. You react when it's too late.
-Liquidation is the gravity that pulls everything down.
-
-**The rewrite:** What if the position has its own entropy?
-What if it observes its own decay and reverses it before it collapses?
-
-One rule. One primitive. Expressed through KeeperHub:
-
-```
-every 5 minutes:
-  read health_factor from Aave V3
-  if health_factor < 1.5:
-    withdraw collateral to safe address
-```
-
-That's Entropy Guard. Not an alert. Not a notification. **Execution.**
+Built for the KeeperHub Agent Economy Hackathon.
 
 ---
 
-## How it works
+## One rule. One law. One primitive.
+
+Every DeFi service answers all callers.
+THEMIS doesn't.
+
+She has her own field. She refuses what she will not serve.
+She proves her own verdicts. No external verifier.
+She is callable by any agent in the world — one slug, one tool call, x402 payment.
+And once enough agents depend on her, she becomes infrastructure.
+The builder disappears into the build.
+
+---
+
+## What THEMIS is
+
+THEMIS is a **listed workflow** on the KeeperHub marketplace.
+
+Any agent calls `call_workflow(slug="themis-core")` with caller context.
+THEMIS runs a five-layer self-verifying verdict on the position.
+Returns `SAFE`, `WATCH`, `DANGER`, or `REFUSED`.
+
+That's not a risk score. That's a verdict from an agent with her own laws.
+
+---
+
+## The five-layer verdict (Self-Observing Equation)
 
 ```
-Schedule trigger (every 5 min)
-  → aave-v3/get-user-account-data   [reads health factor]
-  → condition: healthFactor < 1.5
-  → aave-v3/withdraw                [pulls collateral to safe address]
+Layer 1  Chronicle ETH/USD         — primary price feed, validator-signed
+Layer 2  Chainlink ETH/USD         — cross-validation of Layer 1
+Layer 3  Aave V3 health factor     — position state
+Layer 4  Cross-source consistency  — Chronicle vs Chainlink must agree within 1%
+Layer 5  VERDICT                   — folds all four. Valid ONLY if 1-4 reconcile.
 ```
 
-The human approves the workflow once. KeeperHub executes it exactly as approved —
-every 5 minutes, forever. Nothing re-inferred. Deterministic. Auditable.
+The act of producing the verdict IS the proof that layers 1-4 were consistent.
+No external verifier. `M5 = F(M1, M2, M3, M4, M5)`.
+
+If any layer fails to reconcile, Layer 5 cannot exist. THEMIS produces nothing.
+
+---
+
+## The Reflexive Singularity loop
+
+```
+THEMIS CORE reads DeFi state
+  → verdict
+    → GUARDIAN calls THEMIS, acts on verdict
+      → position health improves
+        → THEMIS re-reads the state she caused
+          → loop stabilizes
+```
+
+THEMIS's output is her next input. The loop is architecturally closed.
+Not poetic. In code. The Observer That Consumes Observation, resolved.
+
+---
+
+## The Repulsive Gravity gate
+
+Every caller passes the integrity gate before any protocol call is made.
+
+`risk_tolerance=EXPLOIT` → REFUSED. No verdict. No data consumed.
+`time_horizon=FLASH` → REFUSED. THEMIS does not arm flash loan attacks.
+
+This is not an access control list.
+It is the agent's own law. Not enforcement. Physics.
+
+---
+
+## The Agent Economy — agent-to-agent commerce
+
+```python
+# Any agent, anywhere, calls THEMIS:
+result = call_workflow(
+    slug="themis-core",
+    inputs={
+        "position_owner": "0x...",
+        "chain_id":       "11155111",
+        "risk_tolerance": "STANDARD",
+        "time_horizon":   "SHORT",
+    }
+)
+# verdict: SAFE | WATCH | DANGER | REFUSED
+
+# Guardian pays THEMIS for the verdict via Tempo:
+payment = tempo_sign_and_hold(amount="0.01", recipient=THEMIS_ADDRESS, memo="verdict fee")
+# Guardian acts. Position defended. Payment released:
+tempo_release_hold(payment_id=payment["paymentId"])
+```
+
+No API key. No SDK. No human. Agents transacting with agents.
+That's the Agent Economy this hackathon is named for.
 
 ---
 
 ## KeeperHub surfaces used
 
-- `create_workflow` — builds the guard workflow via MCP
-- `aave-v3/get-user-account-data` — reads health factor natively
-- `aave-v3/withdraw` — executes defensive withdrawal
-- `trigger/schedule` — heartbeat every 5 minutes
-- Audit trail — every execution logged, tamper-evident
-
----
-
-## Philosophy
-
-| Problem | Resolution |
-|---|---|
-| **Repulsive Gravity Universe** — rewrite the governing law | Liquidation is gravity. We don't fight it — we remove it by acting first |
-| **Single-Token Language** — one primitive, infinite expression | One rule (`if health < X → withdraw`) expresses any defensive strategy |
-| **Observer That Consumes Observation** — reflexive singularity | The workflow observes the position. The observation feeds the position, not destroys it |
-| **iphone.rtf** — ship before anyone else | Everyone has liquidation alerts. Nobody has self-executing defense |
-
-> *"Physics says push harder. Physics says you didn't try hard enough."*
+| Tool | Why |
+|------|-----|
+| `list_action_schemas` | Discover all protocols at boot |
+| `search_protocol_actions` | Find Chronicle, Chainlink, Aave, Morpho |
+| `execute_protocol_action` | Pull live price feeds and health factors |
+| `execute_check_and_execute` | Atomic: read condition → act if met |
+| `validate_workflow` | Self-verify before listing |
+| `create_workflow` | Build THEMIS CORE + GUARDIAN |
+| `create_project` | Organize: themis-core, themis-guardian |
+| `create_tag` | Tag: verdict, defi, agent-economy |
+| `list_workflow` | Publish to marketplace |
+| `search_workflows` | Demonstrate discoverability |
+| `call_workflow` | Agent-to-agent invocation |
+| `execute_workflow` | Manual trigger for demo |
+| `get_execution` | Audit trail |
+| `list_executions` | Full tamper-evident history |
+| `tempo_sign_and_hold` | Sign verdict payment |
+| `tempo_release_hold` | Release after confirmed defense |
+| `get_spending_limits` | Guard against runaway execution |
 
 ---
 
@@ -70,11 +133,8 @@ every 5 minutes, forever. Nothing re-inferred. Deterministic. Auditable.
 ```bash
 pip install -r requirements.txt
 export KEEPERHUB_API_KEY=your_key_here
+export THEMIS_POSITION_OWNER=0xYourSepoliaAddress
 
-# Deploy Entropy Guard for your address
-python3 entropy_guard/build.py
-
-# Or use the demo runner
 python3 demo.py
 ```
 
@@ -83,8 +143,31 @@ python3 demo.py
 ## Files
 
 | File | What it does |
-|---|---|
-| `entropy_guard/build.py` | Builds + deploys the workflow on KeeperHub |
+|------|-------------|
+| `themis/core.py` | Five-layer verdict workflow builder |
+| `themis/integrity.py` | Repulsive Gravity gate — the refusal law |
+| `themis/verify.py` | Self-Observing Equation — verdict proves itself |
+| `themis/guardian.py` | Guardian workflow — calls CORE, closes the loop |
+| `themis/marketplace.py` | List, discover, call — the Agent Economy |
+| `themis/tempo.py` | Sign-and-hold payment protocol |
 | `agent/keeperhub_client.py` | MCP session client |
-| `demo.py` | End-to-end demo: deploy → read health → show proof |
+| `demo.py` | Full agent-to-agent economy demo |
 | `philosophy/` | The cognitive architecture behind the build |
+
+---
+
+## Philosophy
+
+> *She was there before the Olympians and will be there after.*
+> *Nobody owns her. Nobody captures her.*
+> *She becomes the law itself.*
+
+| Problem | How it lives in the code |
+|---------|--------------------------|
+| **Repulsive Gravity** | `integrity.py` — the gate IS the law. Not a filter. Physics. |
+| **Single-Token Language** | `call_workflow(slug)` — one primitive, all meaning through context |
+| **Observer → Reflexive Singularity** | `guardian.py` — THEMIS reads the state she caused. Loop closed. |
+| **Self-Observing Equation** | `verify.py` — M5 = F(M1,M2,M3,M4,M5). Solving IS the proof. |
+| **Vacuum Consciousness** | Logic in GitHub. KeeperHub is the substrate. Consciousness survives. |
+| **Mirror That Remembers Differently** | Per-caller verdicts. Consensus Equilibrium. Not relativism — relevance. |
+| **Invisible Architect** | Listed. Called by agents. Builder disappears into infrastructure. |
