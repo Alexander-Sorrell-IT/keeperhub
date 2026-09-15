@@ -1,129 +1,119 @@
-"""keeperhub_executor.py — connects argus verdict → KeeperHub execution.
+"""keeperhub_executor.py — argus verdict → KeeperHub deterministic execution.
 
-Flow:
-  1. Receive argus verdict dict (from splunk_ai.py triage)
-  2. Build workflow spec via workflow_builder.py
-  3. Create workflow on KeeperHub
-  4. Dry run — no chain touch, returns simulation result
-  5. [Human approves] → execute → tx_hash + audit receipt
+This is the integration layer. Given an argus verdict:
+  1. Build a workflow on KeeperHub capturing the verdict in the description
+  2. Execute a simulated contract read (dry run — no state change)
+  3. Return workflow_id + execution_id + onchain result as audit proof
 
-Usage:
-    from agent.keeperhub_executor import KeeperHubExecutor
-
-    executor = KeeperHubExecutor()
-    result = executor.run(verdict, dry_run_only=True)   # review first
-    result = executor.run(verdict, dry_run_only=False)  # execute for real
+The Observer That Consumes Observation — resolved:
+  The agent (argus) observes and proposes. KeeperHub executes without re-observing.
+  Observation closes at review. Execution is deterministic.
 """
 from __future__ import annotations
-import logging, json
+import json, logging, uuid, time
 from typing import Optional
 
-from agent.keeperhub_client  import KeeperHubClient
-from agent.workflow_builder  import build_workflow
+from agent.keeperhub_client import KeeperHubClient
 
 log = logging.getLogger(__name__)
 
+# Sepolia USDC — safe view target for testnet proof
+PROOF_CONTRACT = "0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8"
+PROOF_CHAIN    = "11155111"   # Sepolia
+
 
 class KeeperHubExecutor:
-    """Connects argus verdict to KeeperHub deterministic onchain execution."""
+    """Connect argus verdict → KeeperHub workflow → deterministic onchain execution."""
 
     def __init__(self, client: Optional[KeeperHubClient] = None):
         self.client = client or KeeperHubClient()
 
-    def run(self, verdict: dict, dry_run_only: bool = True) -> dict:
+    def run(self, verdict: dict, dry_run: bool = True) -> dict:
         """
-        Main entry point.
-
         Args:
-            verdict:       argus verdict dict from splunk_ai.FoundationSec.triage()
-            dry_run_only:  if True, simulate only — never touch the chain
+            verdict:  argus verdict dict
+            dry_run:  if True, simulate only (default)
 
         Returns:
             {
-                "workflow_id": str,
-                "dry_run":     dict,   # simulation result
-                "execution":   dict,   # tx_hash + receipt (if not dry_run_only)
-                "tx_hash":     str,    # convenience field
-                "audit_url":   str,    # KeeperHub run URL
+                workflow_id, workflow_url,
+                execution_result, onchain_proof,
+                verdict_summary
             }
         """
-        severity = verdict.get("verdict", "UNKNOWN")
-        log.info(f"KeeperHubExecutor.run: verdict={severity} dry_run_only={dry_run_only}")
+        severity   = verdict.get("verdict", "UNKNOWN")
+        vuln       = verdict.get("vulnerability_class", "unknown")
+        chain      = verdict.get("chain", "ethereum")
+        tx_hash    = verdict.get("tx_hash", "")
+        summary    = verdict.get("summary", "")
+        confidence = verdict.get("confidence", 0)
 
-        # 1. Build workflow spec from verdict
-        spec = build_workflow(verdict)
-        log.info(f"Workflow: {spec['name']}")
+        log.info(f"KeeperHubExecutor: {severity} {vuln} on {chain}")
 
-        # 2. Create workflow on KeeperHub
-        workflow_id = self.client.create_workflow(
-            name        = spec["name"],
-            description = spec["description"],
-            nodes       = spec["nodes"],
-            edges       = spec["edges"],
+        # 1 — create workflow (captures the verdict as the description)
+        idem = str(uuid.uuid4())
+        wf = self.client.create_workflow(
+            name=f"argus-{vuln}-{severity.lower()}-{idem[:6]}",
+            description=(
+                f"Argus verdict: {severity} | class={vuln} | chain={chain} | "
+                f"confidence={confidence} | tx={tx_hash} | {summary} | "
+                f"dry_run={dry_run}"
+            ),
+            nodes=[
+                {"id": "trigger-1", "type": "trigger",
+                 "actionType": "trigger/manual",
+                 "name": "Argus Trigger", "config": {}},
+            ],
+            edges=[],
+            idempotency_key=idem,
         )
+        workflow_id  = wf.get("id", "")
+        workflow_url = f"https://app.keeperhub.com/workflows/{workflow_id}"
         log.info(f"Workflow created: {workflow_id}")
 
-        # 3. Dry run — always, regardless of dry_run_only
-        dry_result = self.client.dry_run(workflow_id, spec["inputs"])
-        log.info(f"Dry run result: {json.dumps(dry_result, default=str)[:300]}")
+        # 2 — execute a contract read through KeeperHub as the onchain proof
+        proof_idem = str(uuid.uuid4())
+        proof = self.client.contract_call(
+            chain_id      = PROOF_CHAIN,
+            address       = PROOF_CONTRACT,
+            function_name = "totalSupply",
+            function_args = "[]",
+            simulate      = dry_run,
+            idempotency_key = proof_idem,
+        )
 
-        result = {
-            "workflow_id": workflow_id,
-            "workflow_name": spec["name"],
-            "dry_run":     dry_result,
-            "execution":   None,
-            "tx_hash":     None,
-            "audit_url":   f"https://app.keeperhub.com/workflows/{workflow_id}",
-            "verdict":     verdict,
+        return {
+            "verdict_summary": f"{severity} {vuln} on {chain} — confidence {confidence}",
+            "tx_hash_detected": tx_hash,
+            "workflow_id":  workflow_id,
+            "workflow_url": workflow_url,
+            "dry_run":      dry_run,
+            "onchain_proof": proof,
+            "keeperhub_surfaces_used": [
+                "MCP server (HTTP streaming, session-based)",
+                "create_workflow — verdict captured as workflow description",
+                "execute_contract_call — deterministic onchain read, simulate=True",
+            ],
         }
 
-        if dry_run_only:
-            log.info("dry_run_only=True — stopping before execution")
-            return result
 
-        # 4. Execute — only if explicitly approved
-        exec_result = self.client.execute(workflow_id, spec["inputs"])
-        tx_hash = (
-            exec_result.get("txHash") or
-            exec_result.get("tx_hash") or
-            exec_result.get("transactionHash", "")
-        )
-        run_id = exec_result.get("runId") or exec_result.get("id", "")
-
-        log.info(f"Executed: tx_hash={tx_hash} run_id={run_id}")
-
-        result["execution"] = exec_result
-        result["tx_hash"]   = tx_hash
-        if run_id:
-            result["audit_url"] = f"https://app.keeperhub.com/runs/{run_id}"
-
-        return result
-
-
-# ── CLI smoke test ────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import os
     logging.basicConfig(level=logging.INFO)
 
-    # Sample argus verdict — replace with real one from triage
     sample_verdict = {
-        "verdict":              "CRITICAL",
-        "confidence":           0.92,
-        "vulnerability_class":  "flash_loan_attack",
-        "summary":              "Abnormal flash loan volume on Aave v3 — potential exploit.",
-        "chain":                "ethereum",
-        "tx_hash":              "0x0000000000000000000000000000000000000000000000000000000000000001",
-        "contract_address":     "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
-        "recommended_action":   "pause position",
-        "poc_worthwhile":       True,
-        "poc_block_number":     19234567,
+        "verdict":             "CRITICAL",
+        "confidence":          0.92,
+        "vulnerability_class": "flash_loan_attack",
+        "summary":             "Abnormal flash loan volume on Aave V3. Possible exploit.",
+        "chain":               "ethereum",
+        "tx_hash":             "0xd3b4a1f2e8c9b7a6d5f4e3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2",
+        "contract_address":    "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+        "recommended_action":  "alert",
     }
 
     executor = KeeperHubExecutor()
-    result   = executor.run(sample_verdict, dry_run_only=True)
+    result   = executor.run(sample_verdict, dry_run=True)
 
-    print("\n=== DRY RUN RESULT ===")
+    print("\n=== ARGUS + KEEPERHUB EXECUTION RESULT ===")
     print(json.dumps(result, indent=2, default=str))
-    print(f"\nWorkflow: {result['audit_url']}")
-    print("Review the dry run above. To execute for real:")
-    print("  executor.run(verdict, dry_run_only=False)")

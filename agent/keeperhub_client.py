@@ -1,10 +1,11 @@
-"""keeperhub_client.py — HTTP client for the KeeperHub MCP server.
+"""keeperhub_client.py — session-aware HTTP client for the KeeperHub MCP server.
 
-KeeperHub MCP endpoint: https://app.keeperhub.com/mcp
+KeeperHub MCP uses HTTP Streaming MCP (2025-06-18):
+  1. POST /mcp  { method: "initialize" }  → get mcp-session-id header
+  2. POST /mcp  { method: "notifications/initialized" }  with session header
+  3. All subsequent calls include the mcp-session-id header
+
 Auth: Bearer token via KEEPERHUB_API_KEY env var.
-
-Pattern mirrors argus/agent/splunk_mcp_client.py — same JSON-RPC shape,
-different transport (HTTP streamable vs Splunk management port).
 """
 from __future__ import annotations
 import os, json, logging, requests
@@ -12,120 +13,111 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-KH_MCP_URL  = os.getenv("KEEPERHUB_MCP_URL", "https://app.keeperhub.com/mcp")
-KH_API_KEY  = os.getenv("KEEPERHUB_API_KEY", "")
+KH_MCP_URL = os.getenv("KEEPERHUB_MCP_URL", "https://app.keeperhub.com/mcp")
+KH_API_KEY = os.getenv("KEEPERHUB_API_KEY", "")
 
 
 class KeeperHubClient:
-    """Thin HTTP client for the KeeperHub MCP server.
-
-    Exposes the three surfaces we need:
-      - create_workflow(nodes, edges)  -> workflow_id
-      - dry_run(workflow_id, inputs)   -> simulated execution result
-      - execute(workflow_id, inputs)   -> tx_hash + audit receipt
-    """
-
     def __init__(self, api_key: str = KH_API_KEY, mcp_url: str = KH_MCP_URL):
         if not api_key:
             raise ValueError("KEEPERHUB_API_KEY not set")
         self.api_key  = api_key
         self.mcp_url  = mcp_url.rstrip("/")
         self._req_id  = 0
-        self._initialized = False
+        self._session = None
 
-    # ── auth header ────────────────────────────────────────────────────
     @property
     def _headers(self) -> dict:
-        return {
+        h = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type":  "application/json",
-            "Accept":        "application/json",
+            "Accept":        "application/json, text/event-stream",
         }
+        if self._session:
+            h["mcp-session-id"] = self._session
+        return h
 
-    # ── JSON-RPC core ──────────────────────────────────────────────────
-    def _rpc(self, method: str, params: Optional[dict] = None) -> dict:
-        self._req_id += 1
-        body = {
-            "jsonrpc": "2.0",
-            "id":      self._req_id,
-            "method":  method,
-        }
-        if params is not None:
-            body["params"] = params
+    def _post(self, body: dict) -> dict:
         r = requests.post(self.mcp_url, headers=self._headers,
                           json=body, timeout=60)
         r.raise_for_status()
+        sid = r.headers.get("mcp-session-id")
+        if sid:
+            self._session = sid
+        if not r.content:
+            return {}
         resp = r.json()
         if "error" in resp:
             raise RuntimeError(f"KeeperHub MCP error: {resp['error']}")
         return resp.get("result", {})
 
     def _ensure_init(self):
-        if self._initialized:
+        if self._session:
             return
-        self._rpc("initialize", {
-            "protocolVersion": "2025-06-18",
-            "capabilities":    {},
-            "clientInfo":      {"name": "argus-keeperhub", "version": "1.0"},
-        })
-        self._initialized = True
+        self._req_id += 1
+        self._post({"jsonrpc": "2.0", "id": self._req_id, "method": "initialize",
+                    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                               "clientInfo": {"name": "argus-keeperhub", "version": "1.0"}}})
+        self._post({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+        log.info(f"KeeperHub session established")
 
     def call_tool(self, name: str, arguments: Optional[dict] = None) -> dict:
         self._ensure_init()
-        return self._rpc("tools/call", {"name": name, "arguments": arguments or {}})
+        self._req_id += 1
+        return self._post({"jsonrpc": "2.0", "id": self._req_id,
+                           "method": "tools/call",
+                           "params": {"name": name, "arguments": arguments or {}}})
 
     def list_tools(self) -> list[dict]:
         self._ensure_init()
-        return self._rpc("tools/list", {}).get("tools", [])
+        self._req_id += 1
+        return self._post({"jsonrpc": "2.0", "id": self._req_id,
+                           "method": "tools/list", "params": {}}).get("tools", [])
 
-    # ── workflow surfaces ──────────────────────────────────────────────
+    # ── workflow ───────────────────────────────────────────────────────
     def create_workflow(self, name: str, description: str,
-                        nodes: list[dict], edges: list[dict]) -> str:
-        """Create a workflow. Returns workflow_id."""
-        result = self.call_tool("create_workflow", {
-            "name":        name,
-            "description": description,
-            "nodes":       nodes,
-            "edges":       edges,
-        })
-        content = result.get("content", [])
-        for c in content:
-            if c.get("type") == "text":
-                try:
-                    payload = json.loads(c["text"])
-                    return payload.get("id") or payload.get("workflowId", "")
-                except Exception:
-                    pass
-        raise RuntimeError(f"create_workflow: no id in response: {result}")
+                        nodes: list, edges: list,
+                        idempotency_key: str = "") -> dict:
+        args = {"name": name, "description": description,
+                "nodes": nodes, "edges": edges}
+        if idempotency_key:
+            args["idempotency_key"] = idempotency_key
+        return self._parse(self.call_tool("create_workflow", args))
 
-    def dry_run(self, workflow_id: str, inputs: dict) -> dict:
-        """Dry run — simulate without touching the chain."""
-        result = self.call_tool("dry_run_workflow", {
-            "workflowId": workflow_id,
-            "inputs":     inputs,
-        })
-        return self._parse_content(result)
+    def execute_workflow(self, workflow_id: str) -> dict:
+        return self._parse(self.call_tool("execute_workflow",
+                                          {"workflowId": workflow_id}))
 
-    def execute(self, workflow_id: str, inputs: dict) -> dict:
-        """Execute the workflow. Returns tx_hash + audit receipt."""
-        result = self.call_tool("execute_workflow", {
-            "workflowId": workflow_id,
-            "inputs":     inputs,
-        })
-        return self._parse_content(result)
+    def get_execution(self, execution_id: str) -> dict:
+        return self._parse(self.call_tool("get_execution",
+                                          {"executionId": execution_id}))
 
-    def get_run(self, run_id: str) -> dict:
-        """Get the audit receipt for a completed run."""
-        result = self.call_tool("get_run", {"runId": run_id})
-        return self._parse_content(result)
+    # ── direct execution ───────────────────────────────────────────────
+    def contract_call(self, chain_id: str, address: str,
+                      function_name: str, function_args: str = "[]",
+                      simulate: bool = True,
+                      idempotency_key: str = "") -> dict:
+        """Read or simulate a contract call through KeeperHub."""
+        args = {
+            "contract_address": address,
+            "chain_id":         chain_id,
+            "function_name":    function_name,
+            "function_args":    function_args,
+            "simulate":         simulate,
+        }
+        if idempotency_key:
+            args["idempotency_key"] = idempotency_key
+        return self._parse(self.call_tool("execute_contract_call", args))
+
+    def get_direct_status(self, execution_id: str) -> dict:
+        return self._parse(self.call_tool("get_direct_execution_status",
+                                          {"executionId": execution_id}))
 
     # ── helpers ────────────────────────────────────────────────────────
     @staticmethod
-    def _parse_content(result: dict) -> dict:
+    def _parse(result: dict) -> dict:
         for c in result.get("content", []):
             if c.get("type") == "text":
-                try:
-                    return json.loads(c["text"])
-                except Exception:
-                    return {"raw": c["text"]}
+                try:    return json.loads(c["text"])
+                except: return {"raw": c["text"]}
         return result
