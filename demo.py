@@ -133,12 +133,27 @@ def _find_existing_workflow(client, name_prefix: str) -> str | None:
     dbg(f"Checking for existing workflow: {name_prefix}")
     try:
         result = client._parse(client.call_tool("list_workflows", {}))
-        workflows = result.get("workflows", result.get("items", []))
+        # list_workflows returns a bare JSON array; older code assumed a dict
+        # and swallowed the AttributeError, which is why every run deployed a
+        # fresh duplicate instead of reusing THEMIS.
+        if isinstance(result, list):
+            workflows = result
+        else:
+            workflows = result.get("workflows", result.get("items", []))
         dbg(f"list_workflows returned {len(workflows)} workflows", workflows)
-        for wf in workflows:
-            if wf.get("name","").startswith(name_prefix):
-                dbg(f"Found existing: {wf.get('name')} → {wf.get('id')}")
-                return wf.get("id")
+        matches = [wf for wf in workflows
+                   if wf.get("name", "").startswith(name_prefix)
+                   and not wf.get("deletedAt")]
+        if not matches:
+            return None
+        # Prefer the one already on the marketplace, then the newest, so a
+        # redeploy keeps the slug other agents are calling.
+        matches.sort(key=lambda wf: (bool(wf.get("isListed")),
+                                     wf.get("createdAt", "")), reverse=True)
+        chosen = matches[0]
+        dbg(f"Found existing: {chosen.get('name')} → {chosen.get('id')} "
+            f"({len(matches)} candidate(s))")
+        return chosen.get("id")
     except Exception as e:
         dbg(f"list_workflows error: {e}")
     return None
@@ -165,7 +180,7 @@ def main(skip_new: bool = False) -> int:
     from agent.keeperhub_client import KeeperHubClient
     from themis.integrity  import check as integrity_check, gate_stats
     from themis.verify     import ThemisVerdict
-    from themis.core       import build_themis_core
+    from themis.core       import build_themis_core, sync_themis_core
     from themis.guardian   import build_themis_guardian
     from themis.marketplace import list_themis_core, show_execution_proof
 
@@ -261,12 +276,40 @@ def main(skip_new: bool = False) -> int:
         "No external verifier. No oracle. The solving is the proof.",
     ], WHITE)
 
-    # Healthy position
-    print(f"  {DIM}Scenario A: healthy position (health=1.8, prices aligned)...{RESET}")
+    # Scenario A runs on live Sepolia values pulled through KeeperHub, so the
+    # equation is proved against real oracle data rather than sample numbers.
+    def _live_layers() -> tuple:
+        def read(action, params):
+            r = client._parse(client.call_tool("execute_protocol_action", {
+                "actionType": action, "params": params,
+            }))
+            dbg(f"execute_protocol_action({action})", r)
+            if not r.get("success"):
+                raise RuntimeError(r.get("raw") or r.get("error") or action)
+            return r["result"]
+
+        chronicle = int(read("chronicle/eth-usd-read",
+                             {"network": CHAIN_ID})) / 1e18
+        chainlink = int(read("chainlink/eth-usd-latest-round-data",
+                             {"network": CHAIN_ID})["answer"]) / 1e8
+        hf = int(read("aave-v3/get-user-account-data",
+                      {"network": CHAIN_ID, "user": POSITION_OWNER})["healthFactor"])
+        return chronicle, chainlink, hf
+
+    live = True
+    with _Spinner("Reading live Sepolia state"):
+        try:
+            m1_live, m2_live, m3_live = _live_layers()
+        except Exception as e:
+            dbg("live read failed — falling back to sample values", str(e))
+            m1_live, m2_live, m3_live, live = 2450.50, 2451.20, int(1.8 * 1e18), False
+
+    src = "live Sepolia" if live else "sample values (live read unavailable)"
+    print(f"  {DIM}Scenario A: real position — {src}...{RESET}")
     v_healthy = ThemisVerdict(
-        m1_chronicle_price = 2450.50,
-        m2_chainlink_price = 2451.20,
-        m3_health_factor   = int(1.8 * 1e18),
+        m1_chronicle_price = m1_live,
+        m2_chainlink_price = m2_live,
+        m3_health_factor   = m3_live,
         risk_tolerance     = "STANDARD",
         time_horizon       = "SHORT",
     )
@@ -281,7 +324,8 @@ def main(skip_new: bool = False) -> int:
         if lkey == "M4_consistency" and raw is not None:
             val = f"{raw:.4%}"
         elif lkey == "M3_health_factor" and raw is not None:
-            val = f"{raw:.4f}"
+            # Aave returns uint256 max for a position carrying no debt.
+            val = "∞ (no debt)" if raw > 1e12 else f"{raw:.4f}"
         elif raw is not None and isinstance(raw, float):
             val = f"${raw:,.2f}"
         else:
@@ -306,7 +350,9 @@ def main(skip_new: bool = False) -> int:
     )
     proof_b = v_bad.compute()
     dbg("ThemisVerdict.compute() — compromised", proof_b)
-    print(f"  {RED}  M4  Deviation      2.04%   threshold=1.00%   {RED}✗{RESET}")
+    _dev = proof_b["layers"]["M4_consistency"]["deviation"]
+    _thr = proof_b["layers"]["M4_consistency"]["threshold"]
+    print(f"  {RED}  M4  Deviation      {_dev:.2%}   threshold={_thr:.2%}   ✗{RESET}")
     print(f"  {RED}  M5  VERDICT        {proof_b['verdict']}   — M5 cannot exist if layers don't reconcile{RESET}")
     print(f"  {DIM}  proof: {proof_b['proof_statement'][:80]}...{RESET}")
 
@@ -315,14 +361,15 @@ def main(skip_new: bool = False) -> int:
     _card([
         "THEMIS CORE is now deployed as a live workflow on KeeperHub.",
         "",
-        "Five nodes. Chronicle → Chainlink → Aave → Consistency → Verdict.",
+        "Eight nodes. Chronicle → scale → Chainlink → scale → Aave",
+        "→ consistency gate → verdict. Every one hits live Sepolia.",
         "Integrity gate at the front. Repulsive Gravity enforced at the edge.",
         "",
         "Idempotent: if THEMIS already exists for this position, she is reused.",
         "No duplicates. Production-grade.",
         "",
         "After creation: the workflow validates itself.",
-        "Valid only if all 6 nodes pass structural check.",
+        "Valid only if every node passes structural check.",
         "The workflow proving its own existence IS the Self-Observing Equation.",
     ], WHITE)
 
@@ -334,6 +381,12 @@ def main(skip_new: bool = False) -> int:
             CORE_ID = existing
             print(f"  {DIM}→  Existing THEMIS CORE found: {CORE_ID}  (reusing — no duplicate){RESET}")
             dbg(f"Reusing existing workflow {CORE_ID}")
+            # Re-sync the graph so a redeploy picks up node changes instead of
+            # silently running whatever was deployed the first time.
+            with _Spinner("Syncing THEMIS CORE graph"):
+                synced = sync_themis_core(client, CORE_ID, POSITION_OWNER, CHAIN_ID)
+            dbg("sync_themis_core result", synced)
+            print(f"  {DIM}→  Graph re-synced ({len(synced.get('nodes', []))} nodes){RESET}")
         else:
             with _Spinner("Deploying THEMIS CORE"):
                 core = build_themis_core(
@@ -457,7 +510,21 @@ def main(skip_new: bool = False) -> int:
         print(f"  {GREEN}   execution ID:  {BOLD}{EXEC_ID}{RESET}")
         print(f"  {GREEN}   status:        {call_status}{RESET}")
         print(f"  {GREEN}   caller:        guardian-agent → themis-core{RESET}")
-        print(f"  {GREEN}   interface:     call_workflow + x402{RESET}")
+        print(f"  {GREEN}   interface:     call_workflow{RESET}")
+        # The verdict itself, as the calling agent receives it. The marketplace
+        # returns the terminal node's payload: direction is the health factor's
+        # position relative to the 1.5 danger floor.
+        out = call_result.get("output") or {}
+        if isinstance(out, dict) and out:
+            direction = out.get("verdict") or out.get("direction")
+            if direction:
+                word = {"above": "SAFE", "equal": "WATCH",
+                        "below": "DANGER"}.get(direction, str(direction))
+                print(f"  {GREEN}   verdict:       {BOLD}{word}{RESET}"
+                      f"{GREEN}  (health factor {direction} the 1.5 floor){RESET}")
+            for k in ("chronicle_price", "chainlink_price", "layers_reconciled"):
+                if k in out:
+                    print(f"  {GREEN}   {k+':':<14} {out[k]}{RESET}")
         print(f"  {GREEN}{'─'*50}{RESET}")
     else:
         print(f"  {AMBER}Call result: {raw_error[:80]}{RESET}")
@@ -578,7 +645,7 @@ def main(skip_new: bool = False) -> int:
     {DIM}📡   Vacuum Logic{RESET}       — GitHub holds the mind. KeeperHub is the substrate.
     {BOLD}🏛️   Infrastructure{RESET}     — listed, callable, builder disappears
 
-  {BOLD}KeeperHub surfaces:{RESET}  17 tools used
+  {BOLD}KeeperHub surfaces:{RESET}  {len(client.tools_used)} tools used ({sum(client.tools_used.values())} calls)
   {BOLD}Philosophies:{RESET}        7 / 7 structurally present in code
   {BOLD}GitHub:{RESET}              github.com/Alexander-Sorrell-IT/keeperhub
 

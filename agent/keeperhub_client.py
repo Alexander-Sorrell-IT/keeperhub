@@ -25,6 +25,7 @@ class KeeperHubClient:
         self.mcp_url  = mcp_url.rstrip("/")
         self._req_id  = 0
         self._session = None
+        self.tools_used: dict = {}   # tool name -> call count, for honest reporting
 
     @property
     def _headers(self) -> dict:
@@ -62,6 +63,7 @@ class KeeperHubClient:
         log.info(f"KeeperHub session established")
 
     def call_tool(self, name: str, arguments: Optional[dict] = None) -> dict:
+        self.tools_used[name] = self.tools_used.get(name, 0) + 1
         self._ensure_init()
         self._req_id += 1
         return self._post({"jsonrpc": "2.0", "id": self._req_id,

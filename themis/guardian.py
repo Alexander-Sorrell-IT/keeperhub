@@ -55,79 +55,89 @@ def build_themis_guardian(
     """
     idem = str(uuid.uuid4())
 
+    def _node(nid, label, config, x, y=0):
+        return {
+            "id":       nid,
+            "type":     "action",
+            "position": {"x": x, "y": y},
+            "data": {"type": "action", "label": label, "config": config},
+        }
+
+    # Same rule as THEMIS CORE: behaviour lives under data.config, never at the
+    # top level of the node.
     nodes = [
         # Heartbeat trigger
         {
-            "id":         "guardian-heartbeat",
-            "type":       "trigger",
-            "actionType": "trigger/schedule",
-            "name":       "Guardian Heartbeat (5 min)",
-            "config": {
-                "cron":     schedule_cron,
-                "timezone": "UTC",
+            "id":       "guardian-heartbeat",
+            "type":     "trigger",
+            "position": {"x": 0, "y": 0},
+            "data": {
+                "type":  "trigger",
+                "label": "Guardian Heartbeat",
+                "config": {
+                    "triggerType":      "Schedule",
+                    "scheduleCron":     schedule_cron,
+                    "scheduleTimezone": "UTC",
+                },
             },
         },
 
-        # Call THEMIS CORE — agent-to-agent
-        # The Guardian buys THEMIS's intelligence.
-        # This is the Single-Token Language: one call_workflow, all meaning.
+        # Read the state THEMIS renders a verdict on.
+        _node("guardian-read-health", "Guardian Read Health Factor", {
+            "actionType": "aave-v3/get-user-account-data",
+            "network":    chain_id,
+            "user":       position_owner,
+        }, 272),
+
+        # The verdict the Guardian acts on — same danger floor THEMIS CORE uses,
+        # so the two agents are reading the same law.
+        _node("guardian-verdict", "Guardian Verdict", {
+            "actionType": "math/compare-tolerance",
+            "actual":     "{{@guardian-read-health:Guardian Read Health Factor.result.healthFactor}}",
+            "expected":   HF_DANGER,
+            "mode":       "absolute",
+            "tolerance":  "0",
+        }, 544),
+
+        # Branch. direction=below means the health factor sits under the floor.
         {
-            "id":         "call-themis-core",
-            "type":       "action",
-            "actionType": "call_workflow",
-            "name":       "Call THEMIS CORE (agent-to-agent)",
-            "config": {
-                "slug":   themis_core_slug,
-                "inputs": {
-                    "position_owner": position_owner,
-                    "chain_id":       chain_id,
-                    "risk_tolerance": "STANDARD",
-                    "time_horizon":   "SHORT",
+            "id":       "guardian-branch",
+            "type":     "action",
+            "position": {"x": 816, "y": 0},
+            "data": {
+                "type":  "action",
+                "label": "Guardian Branch",
+                "config": {
+                    "actionType": "Condition",
+                    "condition":  '{{@guardian-verdict:Guardian Verdict.direction}} === "below"',
                 },
-                "description": (
-                    "The Guardian calls THEMIS CORE — agent-to-agent commerce. "
-                    "The Guardian has no intelligence of its own. "
-                    "It buys THEMIS's verdict and acts on it. "
-                    "This is the Agent Economy the hackathon is named for."
-                ),
             },
         },
 
-        # Defensive withdrawal — fires only if THEMIS says DANGER
-        # execute_check_and_execute: atomic read → act if condition met
-        {
-            "id":         "guardian-defend",
-            "type":       "action",
-            "actionType": "execute_check_and_execute",
-            "name":       "Guardian Defense (Reflexive Singularity)",
-            "config": {
-                "contract_address": "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951",  # Aave V3 Pool
-                "chain_id":         chain_id,
-                "function_name":    "getUserAccountData",
-                "function_args":    f"[\"{position_owner}\"]",
-                "condition": {
-                    "operator": "lt",
-                    "value":    HF_DANGER,
-                },
-                "action": {
-                    "contract_address": "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951",
-                    "function_name":    "withdraw",
-                    "function_args":    f"[\"{USDC_SEPOLIA}\", \"{withdraw_amount}\", \"{safe_address}\"]",
-                },
-                "description": (
-                    "Reflexive Singularity in code: "
-                    "Guardian acts → position health improves → "
-                    "THEMIS reads better state next tick → loop stabilizes. "
-                    "The Oracle's output was the Guardian's input. "
-                    "The Guardian's action is the Oracle's next input."
-                ),
-            },
-        },
+        # TRUE branch — defend the position.
+        _node("guardian-defend", "Guardian Defense Withdraw", {
+            "actionType": "aave-v3/withdraw",
+            "network":    chain_id,
+            "asset":      USDC_SEPOLIA,
+            "amount":     withdraw_amount,
+            "to":         safe_address,
+        }, 1088, -120),
+
+        # FALSE branch — the loop stabilised; record it and wait for the next tick.
+        _node("guardian-hold", "Guardian Hold", {
+            "actionType": "data/static-config",
+            "value":      '{"action": "hold", "reason": "health factor above danger floor"}',
+        }, 1088, 120),
     ]
 
     edges = [
-        {"source": "guardian-heartbeat", "target": "call-themis-core"},
-        {"source": "call-themis-core",   "target": "guardian-defend"},
+        {"id": "g1", "source": "guardian-heartbeat",   "target": "guardian-read-health"},
+        {"id": "g2", "source": "guardian-read-health", "target": "guardian-verdict"},
+        {"id": "g3", "source": "guardian-verdict",     "target": "guardian-branch"},
+        {"id": "g4", "source": "guardian-branch",      "target": "guardian-defend",
+         "sourceHandle": "true"},
+        {"id": "g5", "source": "guardian-branch",      "target": "guardian-hold",
+         "sourceHandle": "false"},
     ]
 
     name = f"themis-guardian-{position_owner[:8]}"

@@ -46,6 +46,16 @@ def list_themis_core(
             "Refuses front-run and exploit callers by law, not by filter. "
             "Self-Observing Equation: verdict proves itself. No external verifier."
         ),
+        # Without an outputMapping a marketplace call returns an execution id and
+        # nothing else — the caller gets no verdict back.
+        "outputMapping": {
+            "verdict":             "{{@layer5-verdict:Layer 5 THEMIS Verdict.direction}}",
+            "health_factor":       "{{@layer3-aave-health:Layer 3 Aave Health Factor.result.healthFactor}}",
+            "chronicle_price":     "{{@layer1-scale:Layer 1b Scale Chronicle.value}}",
+            "chainlink_price":     "{{@layer2-scale:Layer 2b Scale Chainlink.value}}",
+            "layers_reconciled":   "{{@layer4-consistency:Layer 4 Cross Source Consistency.withinTolerance}}",
+            "price_deviation_pct": "{{@layer4-consistency:Layer 4 Cross Source Consistency.percentDifference}}",
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -62,7 +72,7 @@ def list_themis_core(
     return result
 
 
-def discover_themis(client: KeeperHubClient) -> dict:
+def discover_themis(client: KeeperHubClient, quiet: bool = False) -> dict:
     """
     Demonstrate discoverability — search_workflows finds THEMIS.
     This is the Invisible Architect moment: the build is findable.
@@ -87,6 +97,7 @@ def agent_calls_themis(
     risk_tolerance: str = "STANDARD",
     time_horizon: str = "SHORT",
     chain_id: str = "11155111",
+    quiet: bool = False,
 ) -> dict:
     """
     Demonstrate agent-to-agent call — this IS the Agent Economy.
@@ -120,7 +131,8 @@ def agent_calls_themis(
     return result
 
 
-def show_execution_proof(client: KeeperHubClient, limit: int = 5) -> dict:
+def show_execution_proof(client: KeeperHubClient, limit: int = 5,
+                         quiet: bool = False) -> dict:
     """
     Pull execution history — tamper-evident audit trail.
     Every call to THEMIS is logged. The record is immutable.

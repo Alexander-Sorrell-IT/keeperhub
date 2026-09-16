@@ -1,0 +1,107 @@
+# THEMIS teleprompter script.
+# One beat per block. Blank line ends a beat. "## <seconds>" sets that beat's dwell.
+# Lines starting with # are comments. Edit freely — run_demo.sh reads this file.
+
+## 14
+OPEN
+
+Every DeFi service answers all callers.
+Every oracle returns data to anyone who asks.
+
+THEMIS doesn't.
+
+She has her own laws. She refuses what she
+will not serve. She proves her own verdicts.
+
+## 22
+PHASE 1 — THE LAW
+
+Watch the integrity gate.
+
+Five callers walk up. Three of them signal
+exploit, MEV, front-run intent.
+
+THEMIS returns nothing. No data consumed,
+no verdict produced.
+
+That is not an access control list.
+It is the agent's own law.
+
+## 26
+PHASE 2 — THE PROOF
+
+M5 equals F of M1 through M5.
+
+Chronicle price. Chainlink price.
+Aave health factor. Consistency gate.
+
+Layer five can only exist if layers one
+through four reconcile.
+
+Scenario B: two percent price divergence.
+The layers don't reconcile — so M5 is
+never produced. The equation holds.
+
+## 24
+PHASE 3 — THE BUILD
+
+THEMIS CORE goes live on KeeperHub now.
+
+Eight nodes. Chronicle, Chainlink, Aave,
+the consistency gate, the verdict.
+
+Every one of them executes against live
+Sepolia. Watch the node count.
+
+Idempotent — an existing THEMIS is re-synced,
+never duplicated.
+
+## 20
+PHASE 4 — THE MARKET
+
+Listed on the KeeperHub marketplace.
+
+From this moment any agent anywhere
+discovers her through search_workflows
+and calls her through one slug.
+
+No API key. No SDK. No human.
+
+## 22
+PHASE 5 — THE CALL
+
+This is the Agent Economy.
+
+One tool. One slug. The caller's context
+is the entire input language —
+risk tolerance, time horizon, position.
+
+An agent just bought another agent's verdict.
+
+## 22
+PHASE 6 — THE LOOP
+
+THEMIS reads the position.
+The Guardian acts on her verdict.
+The position changes.
+THEMIS reads the state she caused.
+
+Her output is her next input.
+The loop is closed in code, not in prose.
+
+## 20
+PHASE 7 — THE PROOF
+
+Execution IDs. Node-level receipts.
+Live oracle values on the record.
+
+The verdict proved itself by existing.
+
+## 15
+CLOSE
+
+One rule. One law. One primitive.
+
+Once enough agents depend on her,
+she is infrastructure —
+and the builder disappears into the build.

@@ -155,7 +155,8 @@ class ThemisVerdict:
                 "The act of producing this verdict is the proof that "
                 "layers 1-4 were consistent. No external verifier required. "
                 f"Verdict: {verdict}. "
-                f"Health factor: {hf:.4f}. "
+                # Aave returns uint256 max when the position carries no debt.
+                f"Health factor: {'infinite (no debt)' if hf > 1e12 else f'{hf:.4f}'}. "
                 f"Price deviation: {m4_deviation:.4%}."
             ),
         }
