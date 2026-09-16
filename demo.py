@@ -45,6 +45,30 @@ ANSI  = _re.compile(r'\x1b\[[0-9;]*m')
 # ── Global debug flag ──────────────────────────────────────────────────────
 DEBUG = False
 
+# ── Teleprompter sync ──────────────────────────────────────────────────────
+# teleprompter (Swift) polls this file and shows the matching slide, so the
+# narration advances with the demo's real progress rather than on a timer.
+STATE_FILE = "/tmp/themis_state"
+
+# Maps phase name → slide index in teleprompter.swift groups[]
+_PHASE_INDEX = {
+    "OPENING": 0, "PHASE1": 1, "PHASE2": 2, "PHASE3": 3, "PHASE4": 4,
+    "PHASE5":  5, "PHASE6": 6, "PHASE7": 7, "CLOSING": 8,
+}
+
+
+def _signal(phase: str) -> None:
+    """Write the slide index — the teleprompter polls and advances."""
+    idx = _PHASE_INDEX.get(phase)
+    if idx is None:
+        return
+    try:
+        with open(STATE_FILE, "w") as f:
+            f.write(str(idx))
+        dbg(f"Teleprompter signal: {phase} -> slide {idx + 1}/{len(_PHASE_INDEX)}")
+    except OSError:
+        pass  # teleprompter missing — the demo continues unaffected
+
 def dbg(label: str, data=None) -> None:
     """Print debug output — only shown with --debug flag."""
     if not DEBUG:
@@ -191,6 +215,7 @@ def main(skip_new: bool = False) -> int:
                           "chain_id": CHAIN_ID})
 
     # ── OPENING ────────────────────────────────────────────────────────────
+    _signal("OPENING")
     _bar("THEMIS  ·  KeeperHub Agent Economy Hackathon", CYAN)
     _card([
         "WHAT THIS IS:",
@@ -214,6 +239,7 @@ def main(skip_new: bool = False) -> int:
     ], WHITE)
 
     # ── PHASE 1: THE LAW ───────────────────────────────────────────────────
+    _signal("PHASE1")
     _bar("PHASE 1  —  THE LAW  (Repulsive Gravity)", RED)
     _card([
         "The governing law of every DeFi service: answer all callers.",
@@ -257,6 +283,7 @@ def main(skip_new: bool = False) -> int:
           f"({stats['refusal_rate']:.0%} refusal rate){RESET}")
 
     # ── PHASE 2: THE PROOF ─────────────────────────────────────────────────
+    _signal("PHASE2")
     _bar("PHASE 2  —  THE PROOF  (Self-Observing Equation)", BLUE)
     _card([
         "Design a self-observing equation.",
@@ -357,6 +384,7 @@ def main(skip_new: bool = False) -> int:
     print(f"  {DIM}  proof: {proof_b['proof_statement'][:80]}...{RESET}")
 
     # ── PHASE 3: THE BUILD ─────────────────────────────────────────────────
+    _signal("PHASE3")
     _bar("PHASE 3  —  THE BUILD  (THEMIS CORE deployed live)", CYAN)
     _card([
         "THEMIS CORE is now deployed as a live workflow on KeeperHub.",
@@ -427,6 +455,7 @@ def main(skip_new: bool = False) -> int:
     CORE_SLUG = f"themis-core-{CORE_ID[:6]}"
 
     # ── PHASE 4: THE MARKET ────────────────────────────────────────────────
+    _signal("PHASE4")
     _bar("PHASE 4  —  THE MARKET  (Invisible Architect)", AMBER)
     _card([
         "List THEMIS on the KeeperHub marketplace.",
@@ -459,6 +488,7 @@ def main(skip_new: bool = False) -> int:
         print(f"\r  {DIM}Marketplace listing: {str(e)[:70]}{RESET}")
 
     # ── PHASE 5: THE CALL ──────────────────────────────────────────────────
+    _signal("PHASE5")
     _bar("PHASE 5  —  THE CALL  (Agent-to-Agent Commerce)", GREEN)
     _card([
         "This is the Agent Economy.",
@@ -531,6 +561,7 @@ def main(skip_new: bool = False) -> int:
         dbg("call_workflow raw error", raw_error)
 
     # ── PHASE 6: THE LOOP ──────────────────────────────────────────────────
+    _signal("PHASE6")
     _bar("PHASE 6  —  THE LOOP  (Reflexive Singularity)", BLUE)
     _card([
         "The Observer That Consumes Observation — resolved.",
@@ -596,6 +627,7 @@ def main(skip_new: bool = False) -> int:
     print(f"  {BLUE}{'─'*50}{RESET}")
 
     # ── PHASE 7: THE PROOF ─────────────────────────────────────────────────
+    _signal("PHASE7")
     _bar("PHASE 7  —  THE PROOF  (Tamper-Evident Audit Trail)", WHITE)
     _card([
         "Every execution logged. Every verdict recorded.",
@@ -628,6 +660,7 @@ def main(skip_new: bool = False) -> int:
                 print(f"  {ns_color}     node: {ns.get('nodeId','?'):<30} status: {ns.get('status','?')}{RESET}")
 
     # ── CLOSING ────────────────────────────────────────────────────────────
+    _signal("CLOSING")
     _bar("THEMIS", GREEN)
     print(f"""
   {BOLD}THEMIS CORE{RESET}     {CORE_URL}
