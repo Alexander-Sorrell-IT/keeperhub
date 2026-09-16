@@ -85,11 +85,17 @@ it's itself. When evaluated, the act of solving is a proof of validity."*
 
 **In the code:** `M5 = F(M1, M2, M3, M4, M5)`
 
-- M1: Chronicle ETH/USD price
-- M2: Chainlink ETH/USD price (cross-validates M1)
-- M3: Aave V3 health factor
-- M4: Cross-source consistency (M1 vs M2 ≤ 1% deviation)
-- M5: Verdict — **can only exist if M1-M4 reconcile**
+- M1: Chronicle ETH/USD price — `chronicle/eth-usd-read`
+- M2: Chainlink ETH/USD price — `chainlink/eth-usd-latest-round-data`
+- M3: Aave V3 health factor — `aave-v3/get-user-account-data`
+- M4: Cross-source consistency — `math/compare-tolerance`, percent mode, 1%
+- M5: Verdict — `math/compare-tolerance` against the 1.5 danger floor.
+  **Can only exist if M1-M4 reconcile**
+
+Eight nodes, all executing against live Sepolia. A run returns
+`executionTrace: [integrity-gate, layer1-chronicle, layer1-scale, layer2-chainlink,
+layer2-scale, layer3-aave-health, layer4-consistency, layer5-verdict]` —
+Chronicle $2402.177817513518173718, Chainlink $2405.88, deviation 0.154%, SAFE.
 
 If any layer fails, M5 is not produced. The fact that M5 exists IS the proof that
 layers 1-4 were consistent. No external verifier. The solving is the proof.
@@ -161,6 +167,10 @@ THEMIS is a participant in an economy.
 - [x] `themis/guardian.py` — Reflexive Singularity loop
 - [x] `themis/marketplace.py` — Invisible Architect
 - [x] `themis/tempo.py` — agent-to-agent payment
-- [ ] Real Sepolia wallet + execution proof
+- [x] Real Sepolia wallet + execution proof — every node executes, live oracle
+      values and node-level receipts on the record
+- [x] Idempotent redeploy — an existing THEMIS is re-synced, never duplicated
+- [ ] Price the listing (`priceUsdcPerCall`) so the paid-call claim is backed
+- [ ] Wire `tempo/hold-payment` into the Guardian's defend branch
 - [ ] Demo video
 - [ ] DoraHacks submission

@@ -36,11 +36,24 @@ That's not a risk score. That's a verdict from an agent with her own laws.
 ## The five-layer verdict (Self-Observing Equation)
 
 ```
-Layer 1  Chronicle ETH/USD         — primary price feed, validator-signed
-Layer 2  Chainlink ETH/USD         — cross-validation of Layer 1
-Layer 3  Aave V3 health factor     — position state
-Layer 4  Cross-source consistency  — Chronicle vs Chainlink must agree within 1%
-Layer 5  VERDICT                   — folds all four. Valid ONLY if 1-4 reconcile.
+Layer 1  chronicle/eth-usd-read                 — primary feed, validator-signed
+   1b    math/format-number (18 decimals)       — scale to a comparable decimal
+Layer 2  chainlink/eth-usd-latest-round-data    — cross-validation of Layer 1
+   2b    math/format-number (8 decimals)        — scale to a comparable decimal
+Layer 3  aave-v3/get-user-account-data          — position state
+Layer 4  math/compare-tolerance (percent, 1%)   — Chronicle vs Chainlink must agree
+Layer 5  math/compare-tolerance (abs, 1.5e18)   — folds the rest. Valid ONLY if
+                                                  1-4 reconcile.
+```
+
+Eight nodes on the canvas, all of them executing. A run on Sepolia:
+
+```
+executionTrace: [integrity-gate, layer1-chronicle, layer1-scale, layer2-chainlink,
+                 layer2-scale, layer3-aave-health, layer4-consistency, layer5-verdict]
+Chronicle  $2402.177817513518173718
+Chainlink  $2405.88
+deviation  0.154%   withinTolerance=true   →   SAFE
 ```
 
 The act of producing the verdict IS the proof that layers 1-4 were consistent.
@@ -106,36 +119,41 @@ That's the Agent Economy this hackathon is named for.
 
 ## KeeperHub surfaces used
 
+Measured, not asserted — `demo.py` counts distinct tools as it calls them and
+prints the number in the closing banner.
+
 | Tool | Why |
 |------|-----|
-| `list_action_schemas` | Discover all protocols at boot |
-| `search_protocol_actions` | Find Chronicle, Chainlink, Aave, Morpho |
-| `execute_protocol_action` | Pull live price feeds and health factors |
-| `execute_check_and_execute` | Atomic: read condition → act if met |
-| `validate_workflow` | Self-verify before listing |
+| `search_protocol_actions` | Discover Chronicle, Chainlink and Aave action types at boot |
 | `create_workflow` | Build THEMIS CORE + GUARDIAN |
-| `create_project` | Organize: themis-core, themis-guardian |
-| `create_tag` | Tag: verdict, defi, agent-economy |
-| `list_workflow` | Publish to marketplace |
-| `search_workflows` | Demonstrate discoverability |
-| `call_workflow` | Agent-to-agent invocation |
-| `execute_workflow` | Manual trigger for demo |
-| `get_execution` | Audit trail |
-| `list_executions` | Full tamper-evident history |
-| `tempo_sign_and_hold` | Sign verdict payment |
-| `tempo_release_hold` | Release after confirmed defense |
-| `get_spending_limits` | Guard against runaway execution |
+| `update_workflow` | Re-sync an existing THEMIS in place; enable it |
+| `validate_workflow` | Self-verify the graph before listing |
+| `list_workflows` | Find an existing THEMIS so a redeploy never duplicates |
+| `list_workflow` | Publish to the marketplace with an input schema and output mapping |
+| `call_workflow` | Agent-to-agent invocation by slug |
+| `execute_workflow` | Manual trigger |
+| `execute_protocol_action` | Direct live reads for the proof phase |
+| `get_execution` / `get_execution_logs` | Node-level receipts |
+| `list_executions` | Tamper-evident history |
 
----
+Node action types used inside the workflows: `chronicle/eth-usd-read`,
+`chainlink/eth-usd-latest-round-data`, `aave-v3/get-user-account-data`,
+`aave-v3/withdraw`, `math/format-number`, `math/compare-tolerance`,
+`data/static-config`, `Condition`.
 
 ## Run it
 
 ```bash
 pip install -r requirements.txt
-export KEEPERHUB_API_KEY=your_key_here
+
+cp .env.example .env          # then put your key in it:
+                              #   KEEPERHUB_API_KEY=kh_...
 export THEMIS_POSITION_OWNER=0xYourSepoliaAddress
 
-python3 demo.py
+python3 demo.py               # the demo on its own
+./run_demo.sh                 # demo left half, teleprompter right half, recorded
+./run_demo.sh --no-rec        # no recording
+./run_demo.sh --no-tp         # no teleprompter
 ```
 
 ---
@@ -152,6 +170,8 @@ python3 demo.py
 | `themis/tempo.py` | Sign-and-hold payment protocol |
 | `agent/keeperhub_client.py` | MCP session client |
 | `demo.py` | Full agent-to-agent economy demo |
+| `run_demo.sh` | One command: split screen, record, save the video |
+| `teleprompter.sh` / `teleprompter.txt` | The spoken script, right half of the screen |
 | `philosophy/` | The cognitive architecture behind the build |
 
 ---
