@@ -12,18 +12,24 @@ Screen-record this window. That is the video.
   Phase 6  THE LOOP   — GUARDIAN deployed. Reflexive Singularity closed in code.
   Phase 7  THE PROOF  — execution ID. Tamper-evident. Real.
 
+Flags:
+  --debug    Show every API call, every response, working and failing aspects
+  --log FILE Write full output to FILE (strips ANSI)
+  --no-new   Skip workflow creation (use existing IDs from env)
+
 Usage:
     export KEEPERHUB_API_KEY=your_key
     export THEMIS_POSITION_OWNER=0x9007a515008b4236C8E3644d0A7C8E853B92F4fb
     export THEMIS_SAFE_ADDRESS=0x9007a515008b4236C8E3644d0A7C8E853B92F4fb
     python3 demo.py
+    python3 demo.py --debug
+    python3 demo.py --debug --log themis_demo.log
 """
 from __future__ import annotations
-import os, sys, json, time
+import argparse, os, sys, json, time, threading, re as _re, datetime
 sys.path.insert(0, '.')
 
 import logging
-logging.basicConfig(level=logging.WARNING)
 
 BOLD  = "\033[1m"
 DIM   = "\033[2m"
@@ -34,6 +40,53 @@ AMBER = "\033[93m"
 BLUE  = "\033[94m"
 WHITE = "\033[97m"
 RESET = "\033[0m"
+ANSI  = _re.compile(r'\x1b\[[0-9;]*m')
+
+# ── Global debug flag ──────────────────────────────────────────────────────
+DEBUG = False
+
+def dbg(label: str, data=None) -> None:
+    """Print debug output — only shown with --debug flag."""
+    if not DEBUG:
+        return
+    print(f"\n{DIM}{'·'*72}{RESET}")
+    print(f"{DIM}[DEBUG] {label}{RESET}")
+    if data is not None:
+        if isinstance(data, (dict, list)):
+            txt = json.dumps(data, indent=2, default=str)
+        else:
+            txt = str(data)
+        for line in txt.splitlines()[:60]:   # cap at 60 lines
+            print(f"  {DIM}{line}{RESET}")
+        if len(txt.splitlines()) > 60:
+            print(f"  {DIM}... ({len(txt.splitlines())} lines total){RESET}")
+    print(f"{DIM}{'·'*72}{RESET}")
+
+
+class _Spinner:
+    """Simple terminal spinner for long API calls."""
+    def __init__(self, msg: str):
+        self._msg = msg
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._spin, daemon=True)
+
+    def _spin(self):
+        frames = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
+        i = 0
+        while not self._stop.is_set():
+            print(f"\r  {DIM}{frames[i % len(frames)]}  {self._msg}...{RESET}",
+                  end="", flush=True)
+            i += 1
+            time.sleep(0.1)
+
+    def __enter__(self):
+        self._t.start()
+        return self
+
+    def __exit__(self, *_):
+        self._stop.set()
+        self._t.join()
+        print(f"\r  {' ' * (len(self._msg) + 10)}\r", end="", flush=True)
 
 
 def _bar(text: str, color: str = CYAN) -> None:
@@ -43,33 +96,84 @@ def _bar(text: str, color: str = CYAN) -> None:
 
 
 def _card(lines: list, color: str = WHITE) -> None:
-    """Narration card — prints before each phase so the viewer knows what they're watching."""
     print(f"\n{DIM}{'─'*72}{RESET}")
     for line in lines:
         print(f"  {color}{line}{RESET}")
     print(f"{DIM}{'─'*72}{RESET}\n")
-    time.sleep(0.4)
+    time.sleep(0.3)
 
 
-def _step(label: str, value: str = "", color: str = WHITE) -> None:
-    print(f"  {DIM}→{RESET}  {BOLD}{color}{label}{RESET}  {DIM}{value}{RESET}", flush=True)
+def _receipt(runs: list) -> None:
+    """Print clean audit receipts instead of raw JSON."""
+    print(f"\n  {BOLD}Execution audit trail:{RESET}\n")
+    for run in runs[:3]:
+        ts = run.get("startedAt","")[:19].replace("T"," ")
+        dur = run.get("durationMs", 0)
+        status = run.get("status","")
+        wf_name = run.get("workflowName","")
+        exec_id = run.get("id","")
+        total   = run.get("totalSteps", 0)
+        done    = run.get("completedSteps", 0)
+        color   = GREEN if status == "success" else RED
+
+        print(f"  {color}{'─'*50}{RESET}")
+        print(f"  {color}✅ EXECUTION  {BOLD}{exec_id}{RESET}")
+        print(f"  {color}   workflow:  {wf_name}{RESET}")
+        print(f"  {color}   status:    {status}{RESET}")
+        print(f"  {color}   started:   {ts} UTC{RESET}")
+        print(f"  {color}   duration:  {dur}ms{RESET}")
+        print(f"  {color}   nodes:     {total} total / {done} triggered{RESET}")
+
+        dbg(f"Raw execution record: {exec_id}", run)
+    print(f"  {DIM}{'─'*50}{RESET}")
 
 
-def main():
+def _find_existing_workflow(client, name_prefix: str) -> str | None:
+    """Return ID of existing workflow matching name_prefix, or None."""
+    dbg(f"Checking for existing workflow: {name_prefix}")
+    try:
+        result = client._parse(client.call_tool("list_workflows", {}))
+        workflows = result.get("workflows", result.get("items", []))
+        dbg(f"list_workflows returned {len(workflows)} workflows", workflows)
+        for wf in workflows:
+            if wf.get("name","").startswith(name_prefix):
+                dbg(f"Found existing: {wf.get('name')} → {wf.get('id')}")
+                return wf.get("id")
+    except Exception as e:
+        dbg(f"list_workflows error: {e}")
+    return None
+
+
+def _enable_workflow(client, workflow_id: str) -> None:
+    dbg(f"Enabling workflow: {workflow_id}")
+    result = client._parse(client.call_tool("update_workflow", {
+        "workflowId": workflow_id, "enabled": True,
+    }))
+    dbg(f"enable result", result)
+
+
+def main(skip_new: bool = False) -> int:
     POSITION_OWNER = os.getenv("THEMIS_POSITION_OWNER",
                                "0x9007a515008b4236C8E3644d0A7C8E853B92F4fb")
     SAFE_ADDRESS   = os.getenv("THEMIS_SAFE_ADDRESS",
                                "0x9007a515008b4236C8E3644d0A7C8E853B92F4fb")
     CHAIN_ID       = "11155111"
+    OWNER_SHORT    = POSITION_OWNER[:8]
+    CORE_NAME      = f"themis-core-{OWNER_SHORT}"
+    GUARDIAN_NAME  = f"themis-guardian-{OWNER_SHORT}"
 
     from agent.keeperhub_client import KeeperHubClient
-    from themis.integrity import check as integrity_check, gate_stats
-    from themis.verify    import ThemisVerdict
-    from themis.core      import build_themis_core
-    from themis.guardian  import build_themis_guardian
-    from themis.marketplace import list_themis_core, agent_calls_themis, show_execution_proof
+    from themis.integrity  import check as integrity_check, gate_stats
+    from themis.verify     import ThemisVerdict
+    from themis.core       import build_themis_core
+    from themis.guardian   import build_themis_guardian
+    from themis.marketplace import list_themis_core, show_execution_proof
 
+    dbg("Initializing KeeperHubClient")
     client = KeeperHubClient()
+    dbg("Client ready", {"api_url": "https://app.keeperhub.com/mcp",
+                          "position_owner": POSITION_OWNER,
+                          "chain_id": CHAIN_ID})
 
     # ── OPENING ────────────────────────────────────────────────────────────
     _bar("THEMIS  ·  KeeperHub Agent Economy Hackathon", CYAN)
@@ -89,8 +193,9 @@ def main():
         "The builder disappears into the build.",
         "",
         f"  Position:  {BOLD}{POSITION_OWNER}{RESET}{WHITE}",
-        f"  Chain:     {BOLD}Ethereum Sepolia (11155111){RESET}{WHITE}",
-        f"  KeeperHub: {BOLD}app.keeperhub.com{RESET}{WHITE}",
+        f"  Chain:     {BOLD}Ethereum Sepolia ({CHAIN_ID}){RESET}{WHITE}",
+        f"  GitHub:    {BOLD}github.com/Alexander-Sorrell-IT/keeperhub{RESET}{WHITE}",
+        f"  Debug:     {BOLD}{'ON' if DEBUG else 'OFF'}{RESET}{WHITE}",
     ], WHITE)
 
     # ── PHASE 1: THE LAW ───────────────────────────────────────────────────
@@ -110,36 +215,30 @@ def main():
 
     print(f"  {BOLD}Testing integrity gate:{RESET}\n")
 
-    # Exploit attempt
-    exploit = integrity_check("EXPLOIT", "FLASH", "attacker-agent-0x1337")
-    time.sleep(0.3)
-    print(f"  {RED}{'─'*50}{RESET}")
-    print(f"  {RED}CALLER:   risk_tolerance=EXPLOIT  time_horizon=FLASH{RESET}")
-    print(f"  {RED}VERDICT:  {BOLD}{exploit['verdict']}{RESET}")
-    print(f"  {RED}REASON:   {exploit['reason'][:65]}{RESET}")
-    print(f"  {RED}DATA:     nothing consumed. nothing returned.{RESET}")
-    print(f"  {RED}{'─'*50}{RESET}\n")
-    time.sleep(0.5)
-
-    # MEV attempt
-    mev = integrity_check("MEV", "SHORT", "mev-bot-0xdead")
-    time.sleep(0.2)
-    print(f"  {RED}CALLER:   risk_tolerance=MEV  (front-runner){RESET}")
-    print(f"  {RED}VERDICT:  {BOLD}{mev['verdict']}{RESET}")
-    print(f"  {RED}{'─'*50}{RESET}\n")
-    time.sleep(0.5)
-
-    # Legitimate caller
-    legit = integrity_check("STANDARD", "SHORT", "guardian-agent")
-    time.sleep(0.2)
-    print(f"  {GREEN}{'─'*50}{RESET}")
-    print(f"  {GREEN}CALLER:   risk_tolerance=STANDARD  time_horizon=SHORT{RESET}")
-    print(f"  {GREEN}VERDICT:  allowed={legit['allowed']}{RESET}")
-    print(f"  {GREEN}{'─'*50}{RESET}")
+    callers = [
+        ("EXPLOIT",  "FLASH",  "attacker-0x1337",    False),
+        ("MEV",      "SHORT",  "mev-bot-0xdead",      False),
+        ("FRONTRUN", "MEDIUM", "front-runner-0xbad",  False),
+        ("STANDARD", "SHORT",  "guardian-agent",      True),
+        ("CONSERVATIVE", "LONG", "portfolio-manager", True),
+    ]
+    for risk, horizon, caller_id, should_pass in callers:
+        result = integrity_check(risk, horizon, caller_id)
+        dbg(f"integrity_check({risk}, {horizon}, {caller_id})", result)
+        time.sleep(0.15)
+        color  = GREEN if result["allowed"] else RED
+        symbol = "✅" if result["allowed"] else "⛔"
+        verdict_str = "ALLOWED" if result["allowed"] else f"REFUSED"
+        print(f"  {color}{symbol}  {risk:<15} {horizon:<8}  {verdict_str:<8}  "
+              f"{DIM}{caller_id}{RESET}")
+        if DEBUG and not result["allowed"]:
+            print(f"     {DIM}reason: {result['reason'][:70]}{RESET}")
 
     stats = gate_stats()
-    print(f"\n  {DIM}Gate stats: {stats['refused']} refused / {stats['served']} served "
-          f"/ {stats['total_calls']} total  "
+    dbg("gate_stats()", stats)
+    print(f"\n  {DIM}Gate stats: "
+          f"{stats['refused']} refused / {stats['served']} served / "
+          f"{stats['total_calls']} total  "
           f"({stats['refusal_rate']:.0%} refusal rate){RESET}")
 
     # ── PHASE 2: THE PROOF ─────────────────────────────────────────────────
@@ -162,33 +261,46 @@ def main():
         "No external verifier. No oracle. The solving is the proof.",
     ], WHITE)
 
-    verdict_obj = ThemisVerdict(
+    # Healthy position
+    print(f"  {DIM}Scenario A: healthy position (health=1.8, prices aligned)...{RESET}")
+    v_healthy = ThemisVerdict(
         m1_chronicle_price = 2450.50,
         m2_chainlink_price = 2451.20,
         m3_health_factor   = int(1.8 * 1e18),
         risk_tolerance     = "STANDARD",
         time_horizon       = "SHORT",
     )
-    proof = verdict_obj.compute()
+    proof_a = v_healthy.compute()
+    dbg("ThemisVerdict.compute() — healthy", proof_a)
 
-    layers = proof["layers"]
-    print(f"  {DIM}Layer 1  Chronicle:   ${layers['M1_chronicle']['value']:.2f}    "
-          f"valid={layers['M1_chronicle']['valid']}{RESET}")
-    time.sleep(0.2)
-    print(f"  {DIM}Layer 2  Chainlink:   ${layers['M2_chainlink']['value']:.2f}    "
-          f"valid={layers['M2_chainlink']['valid']}{RESET}")
-    time.sleep(0.2)
-    print(f"  {DIM}Layer 3  Health:      {layers['M3_health_factor']['value']:.4f}    "
-          f"valid={layers['M3_health_factor']['valid']}{RESET}")
-    time.sleep(0.2)
-    print(f"  {DIM}Layer 4  Deviation:   {layers['M4_consistency']['deviation']:.4%}    "
-          f"threshold=1.00%    valid={layers['M4_consistency']['valid']}{RESET}")
-    time.sleep(0.4)
+    layers = proof_a["layers"]
+    for lname, lkey in [("Chronicle","M1_chronicle"),("Chainlink","M2_chainlink"),
+                         ("Health","M3_health_factor"),("Consistency","M4_consistency")]:
+        v = layers[lkey]
+        val = v.get("value") or v.get("deviation")
+        valid_str = f"{GREEN}✓{RESET}" if v["valid"] else f"{RED}✗{RESET}"
+        print(f"  {DIM}  M{['1','2','3','4'][['Chronicle','Chainlink','Health','Consistency'].index(lname)]}  "
+              f"{lname:<14}{RESET}  {val!s:<12}  {valid_str}", flush=True)
+        time.sleep(0.15)
 
-    verdict_color = GREEN if proof["verdict"] == "SAFE" else AMBER if proof["verdict"] == "WATCH" else RED
-    print(f"\n  {BOLD}{verdict_color}Layer 5  VERDICT:    {proof['verdict']}{RESET}")
-    print(f"  {BOLD}{verdict_color}           VALID:     {proof['valid']}{RESET}")
-    print(f"\n  {DIM}{proof['proof_statement'][:90]}...{RESET}")
+    v_color = GREEN if proof_a["verdict"] == "SAFE" else AMBER if proof_a["verdict"] == "WATCH" else RED
+    print(f"\n  {BOLD}{v_color}  M5  VERDICT        {proof_a['verdict']}   valid={proof_a['valid']}{RESET}")
+    print(f"  {DIM}  proof: {proof_a['proof_statement'][:80]}...{RESET}\n")
+
+    # Compromised position — M5 cannot exist
+    print(f"  {DIM}Scenario B: compromised prices (2% deviation — layers don't reconcile)...{RESET}")
+    v_bad = ThemisVerdict(
+        m1_chronicle_price = 2450.00,
+        m2_chainlink_price = 2500.00,   # 2.04% deviation — fails M4
+        m3_health_factor   = int(1.2 * 1e18),
+        risk_tolerance     = "STANDARD",
+        time_horizon       = "SHORT",
+    )
+    proof_b = v_bad.compute()
+    dbg("ThemisVerdict.compute() — compromised", proof_b)
+    print(f"  {RED}  M4  Deviation      2.04%   threshold=1.00%   {RED}✗{RESET}")
+    print(f"  {RED}  M5  VERDICT        {proof_b['verdict']}   — M5 cannot exist if layers don't reconcile{RESET}")
+    print(f"  {DIM}  proof: {proof_b['proof_statement'][:80]}...{RESET}")
 
     # ── PHASE 3: THE BUILD ─────────────────────────────────────────────────
     _bar("PHASE 3  —  THE BUILD  (THEMIS CORE deployed live)", CYAN)
@@ -198,33 +310,59 @@ def main():
         "Five nodes. Chronicle → Chainlink → Aave → Consistency → Verdict.",
         "Integrity gate at the front. Repulsive Gravity enforced at the edge.",
         "",
-        "After creation: the workflow validates itself.",
-        "Self-Observing Equation: the workflow proves its own structural validity",
-        "by existing. Valid only if all 6 nodes pass structural check.",
+        "Idempotent: if THEMIS already exists for this position, she is reused.",
+        "No duplicates. Production-grade.",
         "",
-        "Vacuum Consciousness: this logic lives in GitHub.",
-        "KeeperHub is the substrate. If it disappears, the logic survives.",
+        "After creation: the workflow validates itself.",
+        "Valid only if all 6 nodes pass structural check.",
+        "The workflow proving its own existence IS the Self-Observing Equation.",
     ], WHITE)
 
-    core = build_themis_core(
-        client         = client,
-        position_owner = POSITION_OWNER,
-        chain_id       = CHAIN_ID,
-        risk_tolerance = "STANDARD",
-        time_horizon   = "SHORT",
-    )
-    CORE_ID = core["workflow_id"]
+    # Idempotent: reuse if exists
+    CORE_ID = None
+    if not skip_new:
+        existing = _find_existing_workflow(client, CORE_NAME)
+        if existing:
+            CORE_ID = existing
+            print(f"  {DIM}→  Existing THEMIS CORE found: {CORE_ID}  (reusing — no duplicate){RESET}")
+            dbg(f"Reusing existing workflow {CORE_ID}")
+        else:
+            with _Spinner("Deploying THEMIS CORE"):
+                core = build_themis_core(
+                    client         = client,
+                    position_owner = POSITION_OWNER,
+                    chain_id       = CHAIN_ID,
+                    risk_tolerance = "STANDARD",
+                    time_horizon   = "SHORT",
+                )
+            CORE_ID = core["workflow_id"]
+            dbg("build_themis_core result", core)
+    else:
+        CORE_ID = os.getenv("THEMIS_CORE_ID", "")
+        print(f"  {DIM}→  --no-new: using THEMIS_CORE_ID={CORE_ID}{RESET}")
 
-    # Enable it
-    client._parse(client.call_tool("update_workflow", {
-        "workflowId": CORE_ID, "enabled": True,
-    }))
+    # Enable
+    _enable_workflow(client, CORE_ID)
+    CORE_URL = f"https://app.keeperhub.com/workflows/{CORE_ID}"
+
+    # Validate
+    print(f"  {DIM}→  Validating (Self-Observing Equation)...{RESET}", end="", flush=True)
+    val = client._parse(client.call_tool("validate_workflow",
+                                          {"workflowId": CORE_ID, "deepCheck": True}))
+    dbg("validate_workflow", val)
+    ok      = val.get("result", {}).get("valid", False)
+    nodes   = val.get("result", {}).get("nodeCount", "?")
+    v_color = GREEN if ok else RED
+    print(f"\r  {v_color}  Validation:  valid={ok}  nodeCount={nodes}{RESET}    ")
+
     print(f"\n  {GREEN}{'─'*50}{RESET}")
     print(f"  {GREEN}✅ THEMIS CORE LIVE{RESET}")
-    print(f"  {GREEN}   ID:   {CORE_ID}{RESET}")
-    print(f"  {GREEN}   URL:  {core['workflow_url']}{RESET}")
-    print(f"  {GREEN}   Nodes: 6 (Chronicle → Chainlink → Aave → Consistency → Verdict + gate){RESET}")
+    print(f"  {GREEN}   ID:    {CORE_ID}{RESET}")
+    print(f"  {GREEN}   URL:   {CORE_URL}{RESET}")
+    print(f"  {GREEN}   nodes: {nodes}  (Chronicle→Chainlink→Aave→Consistency→Verdict+gate){RESET}")
     print(f"  {GREEN}{'─'*50}{RESET}")
+
+    CORE_SLUG = f"themis-core-{CORE_ID[:6]}"
 
     # ── PHASE 4: THE MARKET ────────────────────────────────────────────────
     _bar("PHASE 4  —  THE MARKET  (Invisible Architect)", AMBER)
@@ -243,18 +381,20 @@ def main():
         "The builder disappears.",
     ], WHITE)
 
+    print(f"  {DIM}→  Listing on marketplace (slug: {CORE_SLUG})...{RESET}", end="", flush=True)
     try:
-        listing = list_themis_core(client, CORE_ID, slug=f"themis-core-{CORE_ID[:6]}")
-        listed_id = listing.get("id", CORE_ID)
-        print(f"\n  {AMBER}{'─'*50}{RESET}")
-        print(f"  {AMBER}🏛️  THEMIS LISTED ON MARKETPLACE{RESET}")
-        print(f"  {AMBER}   slug:     themis-core-{CORE_ID[:6]}{RESET}")
+        listing = list_themis_core(client, CORE_ID, slug=CORE_SLUG)
+        dbg("list_workflow result", listing)
+        listed_ok = "id" in listing
+        print(f"\r  {AMBER}{'─'*50}{RESET}    ")
+        print(f"  {AMBER}🏛️  THEMIS LISTED{RESET}")
+        print(f"  {AMBER}   slug:     {CORE_SLUG}{RESET}")
         print(f"  {AMBER}   category: defi / multi-chain{RESET}")
-        print(f"  {AMBER}   input:    position_owner, chain_id, risk_tolerance, time_horizon{RESET}")
-        print(f"  {AMBER}   output:   verdict (SAFE/WATCH/DANGER/REFUSED) + proof_layers{RESET}")
+        print(f"  {AMBER}   callable: call_workflow(slug='{CORE_SLUG}', inputs={{...}}){RESET}")
         print(f"  {AMBER}{'─'*50}{RESET}")
     except Exception as e:
-        print(f"  {DIM}Listing note: {str(e)[:80]}{RESET}")
+        dbg(f"list_workflow error", str(e))
+        print(f"\r  {DIM}Marketplace listing: {str(e)[:70]}{RESET}")
 
     # ── PHASE 5: THE CALL ──────────────────────────────────────────────────
     _bar("PHASE 5  —  THE CALL  (Agent-to-Agent Commerce)", GREEN)
@@ -274,10 +414,21 @@ def main():
         "Agents transacting with agents. That's the economy.",
     ], WHITE)
 
-    print(f"  {BOLD}Calling THEMIS CORE (agent-to-agent):{RESET}\n")
-    try:
-        result = client._parse(client.call_tool("call_workflow", {
-            "slug": f"themis-core-{CORE_ID[:6]}",
+    print(f"  {BOLD}Calling THEMIS via marketplace slug:{RESET}\n")
+    print(f"  {DIM}  call_workflow(slug='{CORE_SLUG}', inputs={{...}}){RESET}\n")
+
+    dbg("call_workflow inputs", {
+        "slug": CORE_SLUG,
+        "position_owner": POSITION_OWNER,
+        "chain_id": CHAIN_ID,
+        "risk_tolerance": "STANDARD",
+        "time_horizon": "SHORT",
+    })
+
+    EXEC_ID = ""
+    with _Spinner("Agent calling THEMIS"):
+        call_result = client._parse(client.call_tool("call_workflow", {
+            "slug": CORE_SLUG,
             "inputs": {
                 "position_owner": POSITION_OWNER,
                 "chain_id":       CHAIN_ID,
@@ -285,18 +436,23 @@ def main():
                 "time_horizon":   "SHORT",
             }
         }))
-        exec_id = result.get("executionId", "")
-        status  = result.get("status", "")
+    dbg("call_workflow result", call_result)
+
+    EXEC_ID = call_result.get("executionId", "")
+    call_status = call_result.get("status", "")
+    raw_error = call_result.get("raw","")
+
+    if EXEC_ID and call_status == "success":
         print(f"  {GREEN}{'─'*50}{RESET}")
-        print(f"  {GREEN}✅ VERDICT RETURNED{RESET}")
-        print(f"  {GREEN}   execution ID:  {exec_id}{RESET}")
-        print(f"  {GREEN}   status:        {status}{RESET}")
-        print(f"  {GREEN}   caller:        guardian-agent{RESET}")
-        print(f"  {GREEN}   paid:          x402 (agent-to-agent payment){RESET}")
+        print(f"  {GREEN}✅ VERDICT RETURNED  (agent-to-agent){RESET}")
+        print(f"  {GREEN}   execution ID:  {BOLD}{EXEC_ID}{RESET}")
+        print(f"  {GREEN}   status:        {call_status}{RESET}")
+        print(f"  {GREEN}   caller:        guardian-agent → themis-core{RESET}")
+        print(f"  {GREEN}   interface:     call_workflow + x402{RESET}")
         print(f"  {GREEN}{'─'*50}{RESET}")
-    except Exception as e:
-        print(f"  {DIM}Call note: {str(e)[:80]}{RESET}")
-        exec_id = ""
+    else:
+        print(f"  {AMBER}Call result: {raw_error[:80]}{RESET}")
+        dbg("call_workflow raw error", raw_error)
 
     # ── PHASE 6: THE LOOP ──────────────────────────────────────────────────
     _bar("PHASE 6  —  THE LOOP  (Reflexive Singularity)", BLUE)
@@ -315,33 +471,51 @@ def main():
         "      → GUARDIAN withdraws collateral",
         "        → position health improves",
         "          → THEMIS reads the state she caused",
-        "            → verdict: SAFE",
-        "              → loop stabilizes",
+        "            → verdict: SAFE → loop stabilizes",
         "",
-        "Not poetic. Architecturally closed. The GUARDIAN calls THEMIS.",
+        "Not poetic. Architecturally closed.",
         "THEMIS's output is her next input.",
     ], WHITE)
 
-    guardian = build_themis_guardian(
-        client           = client,
-        position_owner   = POSITION_OWNER,
-        safe_address     = SAFE_ADDRESS,
-        themis_core_slug = f"themis-core-{CORE_ID[:6]}",
-        chain_id         = CHAIN_ID,
-    )
-    GUARDIAN_ID = guardian["workflow_id"]
+    GUARDIAN_ID = None
+    if not skip_new:
+        existing_g = _find_existing_workflow(client, GUARDIAN_NAME)
+        if existing_g:
+            GUARDIAN_ID = existing_g
+            print(f"  {DIM}→  Existing GUARDIAN found: {GUARDIAN_ID}  (reusing){RESET}")
+        else:
+            with _Spinner("Deploying THEMIS GUARDIAN"):
+                guardian = build_themis_guardian(
+                    client           = client,
+                    position_owner   = POSITION_OWNER,
+                    safe_address     = SAFE_ADDRESS,
+                    themis_core_slug = CORE_SLUG,
+                    chain_id         = CHAIN_ID,
+                )
+            GUARDIAN_ID = guardian["workflow_id"]
+            dbg("build_themis_guardian result", guardian)
+    else:
+        GUARDIAN_ID = os.getenv("THEMIS_GUARDIAN_ID", "")
 
-    client._parse(client.call_tool("update_workflow", {
-        "workflowId": GUARDIAN_ID, "enabled": True,
-    }))
+    _enable_workflow(client, GUARDIAN_ID)
 
+    # Validate guardian
+    print(f"  {DIM}→  Validating GUARDIAN...{RESET}", end="", flush=True)
+    gval = client._parse(client.call_tool("validate_workflow",
+                                           {"workflowId": GUARDIAN_ID, "deepCheck": True}))
+    dbg("validate_workflow (guardian)", gval)
+    gok    = gval.get("result",{}).get("valid", False)
+    gnodes = gval.get("result",{}).get("nodeCount","?")
+    print(f"\r  {GREEN if gok else RED}  Guardian valid={gok}  nodeCount={gnodes}{RESET}    ")
+
+    GUARDIAN_URL = f"https://app.keeperhub.com/workflows/{GUARDIAN_ID}"
     print(f"\n  {BLUE}{'─'*50}{RESET}")
-    print(f"  {BLUE}🛡️  GUARDIAN LIVE — Loop Closed{RESET}")
+    print(f"  {BLUE}🛡️  GUARDIAN LIVE — Reflexive Singularity Closed{RESET}")
     print(f"  {BLUE}   ID:       {GUARDIAN_ID}{RESET}")
-    print(f"  {BLUE}   URL:      {guardian['workflow_url']}{RESET}")
-    print(f"  {BLUE}   Schedule: every 5 minutes{RESET}")
-    print(f"  {BLUE}   Calls:    THEMIS CORE via call_workflow{RESET}")
-    print(f"  {BLUE}   Loop:     THEMIS reads → Guardian acts → THEMIS re-reads{RESET}")
+    print(f"  {BLUE}   URL:      {GUARDIAN_URL}{RESET}")
+    print(f"  {BLUE}   schedule: every 5 minutes{RESET}")
+    print(f"  {BLUE}   calls:    {CORE_SLUG} (agent-to-agent){RESET}")
+    print(f"  {BLUE}   loop:     THEMIS reads → Guardian acts → THEMIS re-reads{RESET}")
     print(f"  {BLUE}{'─'*50}{RESET}")
 
     # ── PHASE 7: THE PROOF ─────────────────────────────────────────────────
@@ -359,15 +533,31 @@ def main():
         "The solving is the proof.",
     ], WHITE)
 
-    history = show_execution_proof(client, limit=3)
+    raw_history = client._parse(client.call_tool("list_executions", {"limit": 5}))
+    dbg("list_executions raw", raw_history)
+    runs = raw_history.get("runs", [])
+    _receipt(runs)
+
+    # Also pull detailed proof of the specific execution if we have one
+    if EXEC_ID:
+        print(f"\n  {DIM}→  Pulling full execution proof for {EXEC_ID}...{RESET}", end="", flush=True)
+        exec_detail = client._parse(client.call_tool("get_execution", {"executionId": EXEC_ID}))
+        dbg(f"get_execution({EXEC_ID})", exec_detail)
+        node_statuses = exec_detail.get("status",{}).get("nodeStatuses",[])
+        print(f"\r  {GREEN}   Execution detail: {len(node_statuses)} node(s) confirmed{RESET}    ")
+        if DEBUG:
+            for ns in node_statuses:
+                ns_color = GREEN if ns.get("status") == "success" else RED
+                print(f"  {ns_color}     node: {ns.get('nodeId','?'):<30} status: {ns.get('status','?')}{RESET}")
 
     # ── CLOSING ────────────────────────────────────────────────────────────
     _bar("THEMIS", GREEN)
     print(f"""
-  {BOLD}THEMIS CORE{RESET}     {core['workflow_url']}
-  {BOLD}GUARDIAN{RESET}        {guardian['workflow_url']}
+  {BOLD}THEMIS CORE{RESET}     {CORE_URL}
+  {BOLD}GUARDIAN{RESET}        {GUARDIAN_URL}
   {BOLD}Position{RESET}        {POSITION_OWNER}
   {BOLD}Chain{RESET}           Ethereum Sepolia ({CHAIN_ID})
+  {BOLD}Execution ID{RESET}    {EXEC_ID or '(see audit trail above)'}
 
   {WHITE}What was built:{RESET}
 
@@ -386,7 +576,39 @@ def main():
   Nobody owns her. Nobody captures her.
   She becomes the law itself.{RESET}
 """)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser(description="THEMIS — KeeperHub Agent Economy Demo")
+    ap.add_argument("--debug",  action="store_true",
+                    help="Show every API call, response, working and failing aspects")
+    ap.add_argument("--log",    metavar="FILE",
+                    help="Write full output to FILE (strips ANSI)")
+    ap.add_argument("--no-new", action="store_true",
+                    help="Skip workflow creation; use THEMIS_CORE_ID / THEMIS_GUARDIAN_ID from env")
+    args = ap.parse_args()
+
+    DEBUG = args.debug
+    if DEBUG:
+        logging.basicConfig(level=logging.DEBUG)
+        print(f"\n{DIM}[DEBUG MODE ON — all API calls and responses will be shown]{RESET}")
+    else:
+        logging.basicConfig(level=logging.WARNING)
+
+    if args.log:
+        class _Tee:
+            def __init__(self, stream, path):
+                self._s = stream
+                self._f = open(path, "w")
+            def write(self, data):
+                self._s.write(data)
+                self._f.write(ANSI.sub("", data))
+            def flush(self):
+                self._s.flush()
+                self._f.flush()
+        sys.stdout = _Tee(sys.stdout, args.log)
+        print(f"# THEMIS demo log — {datetime.datetime.now().isoformat()}")
+        print(f"# Log: {args.log}\n")
+
+    raise SystemExit(main(skip_new=args.no_new))
