@@ -277,10 +277,18 @@ def main(skip_new: bool = False) -> int:
     for lname, lkey in [("Chronicle","M1_chronicle"),("Chainlink","M2_chainlink"),
                          ("Health","M3_health_factor"),("Consistency","M4_consistency")]:
         v = layers[lkey]
-        val = v.get("value") or v.get("deviation")
+        raw = v.get("value") or v.get("deviation")
+        if lkey == "M4_consistency" and raw is not None:
+            val = f"{raw:.4%}"
+        elif lkey == "M3_health_factor" and raw is not None:
+            val = f"{raw:.4f}"
+        elif raw is not None and isinstance(raw, float):
+            val = f"${raw:,.2f}"
+        else:
+            val = str(raw)
         valid_str = f"{GREEN}✓{RESET}" if v["valid"] else f"{RED}✗{RESET}"
         print(f"  {DIM}  M{['1','2','3','4'][['Chronicle','Chainlink','Health','Consistency'].index(lname)]}  "
-              f"{lname:<14}{RESET}  {val!s:<12}  {valid_str}", flush=True)
+              f"{lname:<14}{RESET}  {val:<12}  {valid_str}", flush=True)
         time.sleep(0.15)
 
     v_color = GREEN if proof_a["verdict"] == "SAFE" else AMBER if proof_a["verdict"] == "WATCH" else RED
