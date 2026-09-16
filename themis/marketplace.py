@@ -22,6 +22,7 @@ def list_themis_core(
     client: KeeperHubClient,
     workflow_id: str,
     slug: str = "themis-core",
+    quiet: bool = False,
 ) -> dict:
     """
     List THEMIS CORE on the KeeperHub marketplace.
@@ -31,7 +32,8 @@ def list_themis_core(
     - Any agent can invoke THEMIS via call_workflow(slug="themis-core")
     - THEMIS is infrastructure. The builder is invisible.
     """
-    print(f"\nListing THEMIS CORE on marketplace (slug: {slug})...")
+    if not quiet:
+        print(f"\nListing THEMIS CORE on marketplace (slug: {slug})...")
     result = client._parse(client.call_tool("list_workflow", {
         "workflowId": workflow_id,
         "slug":       slug,
@@ -55,7 +57,8 @@ def list_themis_core(
             "required": ["position_owner"],
         },
     }))
-    print(f"Listed: {json.dumps(result, indent=2, default=str)[:400]}")
+    if not quiet:
+        print(f"Listed: {json.dumps(result, indent=2, default=str)[:400]}")
     return result
 
 
@@ -64,14 +67,16 @@ def discover_themis(client: KeeperHubClient) -> dict:
     Demonstrate discoverability — search_workflows finds THEMIS.
     This is the Invisible Architect moment: the build is findable.
     """
-    print("\nSearching marketplace for THEMIS...")
+    if not quiet:
+        print("\nSearching marketplace for THEMIS...")
     result = client._parse(client.call_tool("search_workflows", {
         "query":    "themis defi verdict",
         "category": "defi",
         "chain":    "11155111",
         "sort":     "recent",
     }))
-    print(f"Search result: {json.dumps(result, indent=2, default=str)[:600]}")
+    if not quiet:
+        print(f"Search result: {json.dumps(result, indent=2, default=str)[:600]}")
     return result
 
 
@@ -92,10 +97,14 @@ def agent_calls_themis(
 
     This is Single-Token Language: one primitive, all meaning through context.
     """
-    print(f"\nAgent calling THEMIS CORE (slug: {slug})...")
-    print(f"  This is agent-to-agent commerce.")
-    print(f"  The caller buys THEMIS's verdict.")
-    print(f"  THEMIS enforces her own laws on the way in.")
+    if not quiet:
+        print(f"\nAgent calling THEMIS CORE (slug: {slug})...")
+    if not quiet:
+        print(f"  This is agent-to-agent commerce.")
+    if not quiet:
+        print(f"  The caller buys THEMIS's verdict.")
+    if not quiet:
+        print(f"  THEMIS enforces her own laws on the way in.")
 
     result = client._parse(client.call_tool("call_workflow", {
         "slug": slug,
@@ -106,7 +115,8 @@ def agent_calls_themis(
             "time_horizon":   time_horizon,
         },
     }))
-    print(f"\nVerdict received: {json.dumps(result, indent=2, default=str)[:600]}")
+    if not quiet:
+        print(f"\nVerdict received: {json.dumps(result, indent=2, default=str)[:600]}")
     return result
 
 
@@ -116,9 +126,11 @@ def show_execution_proof(client: KeeperHubClient, limit: int = 5) -> dict:
     Every call to THEMIS is logged. The record is immutable.
     The Invisible Architect built infrastructure with receipts.
     """
-    print("\nPulling THEMIS execution history (audit trail)...")
+    if not quiet:
+        print("\nPulling THEMIS execution history (audit trail)...")
     result = client._parse(client.call_tool("list_executions", {
         "limit": limit,
     }))
-    print(f"Executions: {json.dumps(result, indent=2, default=str)[:800]}")
+    if not quiet:
+        print(f"Executions: {json.dumps(result, indent=2, default=str)[:800]}")
     return result

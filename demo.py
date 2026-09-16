@@ -384,7 +384,7 @@ def main(skip_new: bool = False) -> int:
 
     print(f"  {DIM}→  Listing on marketplace (slug: {CORE_SLUG})...{RESET}", end="", flush=True)
     try:
-        listing = list_themis_core(client, CORE_ID, slug=CORE_SLUG)
+        listing = list_themis_core(client, CORE_ID, slug=CORE_SLUG, quiet=True)
         dbg("list_workflow result", listing)
         listed_ok = "id" in listing
         print(f"\r  {AMBER}{'─'*50}{RESET}    ")
