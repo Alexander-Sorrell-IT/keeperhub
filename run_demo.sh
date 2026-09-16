@@ -1,81 +1,87 @@
 #!/bin/bash
-# THEMIS — Verify then Record
-# Step 1: debug run + log
-# Step 2: check log for errors
-# Step 3: if clean, run clean for recording
+# THEMIS — One command. Press ENTER. Demo runs. Video saved to Desktop.
+# Mirrors the sentinel run_demo.sh pattern.
 
-set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLEANREC="/Users/broodierchip-m1air/Desktop/foundersmax-refund-agent/loom/cleanrec/CleanRec.app/Contents/MacOS/CleanRec"
+STAMP="$(date +%H%M%S)"
+TRIG="/tmp/themis_rec_trigger"
+REC_OUT="$HOME/Desktop/themis_demo_${STAMP}.mp4"
+LOG="$HOME/Desktop/themis_demo_${STAMP}.log"
 
+# ── Keys ──────────────────────────────────────────────────────────────────
 export KEEPERHUB_API_KEY=kh_REDACTED_SEE_DOT_ENV
 export THEMIS_POSITION_OWNER=0x9007a515008b4236C8E3644d0A7C8E853B92F4fb
 export THEMIS_SAFE_ADDRESS=0x9007a515008b4236C8E3644d0A7C8E853B92F4fb
+export PYTHONUNBUFFERED=1
 
-BOLD="\033[1m"
-GREEN="\033[92m"
-RED="\033[91m"
-CYAN="\033[96m"
-DIM="\033[2m"
-RESET="\033[0m"
+# ── Flags ─────────────────────────────────────────────────────────────────
+NO_REC=0
+USE_CAM=0
+for arg in "$@"; do
+    [ "$arg" = "--no-rec"  ] && NO_REC=1
+    [ "$arg" = "--cam"     ] && USE_CAM=1
+    [ "$arg" = "--debug"   ] && export THEMIS_DEBUG=1
+done
 
-LOG=/tmp/themis_debug.log
-cd /tmp/keeperhub
+# ── Position terminal ──────────────────────────────────────────────────────
+osascript <<'APPL' >/dev/null 2>&1
+tell application "Terminal"
+    activate
+    try
+        set bounds of front window to {0, 25, 1440, 900}
+    end try
+    try
+        set current settings of front window to settings set "Pro"
+        set font size of front window to 15
+    end try
+end tell
+APPL
 
-echo -e "\n${BOLD}${CYAN}════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}${CYAN}  THEMIS — Step 1: Debug verification run${RESET}"
-echo -e "${BOLD}${CYAN}════════════════════════════════════════════${RESET}\n"
-
-python3.11 demo.py --debug --log "$LOG"
-
-echo -e "\n${BOLD}${CYAN}════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}${CYAN}  THEMIS — Step 2: Checking log for errors${RESET}"
-echo -e "${BOLD}${CYAN}════════════════════════════════════════════${RESET}\n"
-
-# Check for hard failures in the log
-ERRORS=$(grep -c -i "error\|traceback\|exception\|failed\|refused\|404\|422\|503" "$LOG" 2>/dev/null || true)
-EXECUTIONS=$(grep -c "execution ID" "$LOG" 2>/dev/null || true)
-VALID=$(grep -c "valid=True" "$LOG" 2>/dev/null || true)
-LISTED=$(grep -c "THEMIS LISTED" "$LOG" 2>/dev/null || true)
-REFUSED=$(grep -c "REFUSED" "$LOG" 2>/dev/null || true)  # expected refusals
-VERDICT=$(grep -c "VERDICT RETURNED" "$LOG" 2>/dev/null || true)
-
-echo -e "  Log file:         ${DIM}$LOG${RESET}"
-echo -e "  Execution IDs:    ${GREEN}$EXECUTIONS found${RESET}"
-echo -e "  Validations:      ${GREEN}$VALID passed${RESET}"
-echo -e "  Marketplace:      ${GREEN}$LISTED listed${RESET}"
-echo -e "  Refused callers:  ${GREEN}$REFUSED (expected — Repulsive Gravity gate working)${RESET}"
-echo -e "  Verdict returned: ${GREEN}$VERDICT (agent-to-agent call confirmed)${RESET}"
-
-# Real failures = errors that aren't the expected refusals from the integrity gate
-REAL_ERRORS=$(grep -i "traceback\|exception\|ModuleNotFound\|ImportError\|KeyError" "$LOG" 2>/dev/null | wc -l || echo 0)
-
-if [ "$REAL_ERRORS" -gt 0 ]; then
-    echo -e "\n  ${RED}❌ ERRORS FOUND — do not record yet${RESET}"
-    echo -e "  ${RED}Check $LOG for details${RESET}"
-    grep -i "traceback\|exception\|ModuleNotFound" "$LOG" | head -10
-    exit 1
+# ── Arm CleanRec ───────────────────────────────────────────────────────────
+rm -f "$TRIG"
+REC_PID=""
+if [ -x "$CLEANREC" ] && [ "$NO_REC" -eq 0 ]; then
+    "$CLEANREC" --fullscreen 1 --cam "$USE_CAM" --trigger "$TRIG" --out "$REC_OUT" >/dev/null 2>&1 &
+    REC_PID=$!
 fi
 
-if [ "$EXECUTIONS" -lt 1 ]; then
-    echo -e "\n  ${RED}❌ No execution IDs found — agent-to-agent call may have failed${RESET}"
-    exit 1
+# ── Banner ─────────────────────────────────────────────────────────────────
+echo ""
+echo "  ╔══════════════════════════════════════════════════════════════════╗"
+echo "  ║   THEMIS  ·  KeeperHub Agent Economy Hackathon                   ║"
+echo "  ╚══════════════════════════════════════════════════════════════════╝"
+echo ""
+if [ -n "$REC_PID" ]; then
+    echo "  ✓ Screen recorder armed → ~/Desktop/themis_demo_${STAMP}.mp4"
+    echo ""
+    printf "  \033[1;92m▸ Press ENTER — recording and demo start together…\033[0m"
+else
+    printf "  \033[1;93m▸ Press ENTER to begin…\033[0m"
 fi
+read -r _ || true
+echo ""
 
-echo -e "\n  ${GREEN}✅ All checks passed. Ready to record.${RESET}"
+# ── Start recording ────────────────────────────────────────────────────────
+touch "$TRIG" 2>/dev/null || true
 
-echo -e "\n${BOLD}${CYAN}════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}${CYAN}  THEMIS — Step 3: Clean run for recording${RESET}"
-echo -e "${BOLD}${CYAN}  START SCREEN RECORDING NOW${RESET}"
-echo -e "${BOLD}${CYAN}════════════════════════════════════════════${RESET}\n"
+# ── Run demo ───────────────────────────────────────────────────────────────
+cd "$SCRIPT_DIR"
+python3.11 demo.py --log "$LOG"
 
-echo -e "  ${DIM}Press ENTER when screen recording is running...${RESET}"
-read -r
+# ── Hold closing screen for 5s ─────────────────────────────────────────────
+sleep 5
 
-python3.11 demo.py
-
-echo -e "\n${BOLD}${GREEN}════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}${GREEN}  STOP SCREEN RECORDING NOW${RESET}"
-echo -e "${BOLD}${GREEN}  Upload to YouTube → submit on DoraHacks${RESET}"
-echo -e "${BOLD}${GREEN}════════════════════════════════════════════${RESET}\n"
-echo -e "  ${DIM}DoraHacks:  dorahacks.io/hackathon/agent-economy${RESET}"
-echo -e "  ${DIM}GitHub:     github.com/Alexander-Sorrell-IT/keeperhub${RESET}"
-echo -e "  ${DIM}Deadline:   Sep 18 06:00 CDT${RESET}\n"
+# ── Stop recording ─────────────────────────────────────────────────────────
+if [ -n "$REC_PID" ]; then
+    kill -INT "$REC_PID" 2>/dev/null || true
+    wait "$REC_PID" 2>/dev/null || true
+    echo ""
+    echo "  ╔══════════════════════════════════════════════════════════════════╗"
+    echo "  ║  ✓ Video saved: ~/Desktop/themis_demo_${STAMP}.mp4              ║"
+    echo "  ║  ✓ Log saved:   ~/Desktop/themis_demo_${STAMP}.log              ║"
+    echo "  ╚══════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  Next: upload to YouTube → submit on dorahacks.io/hackathon/agent-economy"
+    echo ""
+fi
