@@ -45,6 +45,35 @@ ANSI  = _re.compile(r'\x1b\[[0-9;]*m')
 # ── Global debug flag ──────────────────────────────────────────────────────
 DEBUG = False
 
+# ── Narration pacing ───────────────────────────────────────────────────────
+# Nobody narrates over this. The teleprompter beside the demo IS the narration,
+# and it is in frame, so every slide has to stay up long enough for a viewer to
+# read it. The phases finish in a couple of seconds, so each one holds out the
+# rest of its slide's reading time before the next slide is signalled.
+# --no-pause drops the holds for a smoke test.
+NO_PAUSE = False
+
+# Seconds each slide needs on screen, from its word count at a readable pace.
+_PHASE_HOLD = {
+    "OPENING": 19, "PHASE1": 22, "PHASE2": 25, "PHASE3": 24, "PHASE4": 22,
+    "PHASE5":  21, "PHASE6": 23, "PHASE7": 18, "CLOSING": 18,
+}
+
+_phase_started = 0.0
+_phase_current = ""
+
+
+def _hold() -> None:
+    """Keep the current slide up for the rest of its reading time."""
+    if NO_PAUSE or not _phase_current:
+        return
+    want = _PHASE_HOLD.get(_phase_current, 20)
+    left = want - (time.monotonic() - _phase_started)
+    dbg(f"Hold {_phase_current}: {want}s wanted, {left:.1f}s remaining")
+    if left > 0:
+        time.sleep(left)
+
+
 # ── Teleprompter sync ──────────────────────────────────────────────────────
 # teleprompter (Swift) polls this file and shows the matching slide, so the
 # narration advances with the demo's real progress rather than on a timer.
@@ -59,9 +88,12 @@ _PHASE_INDEX = {
 
 def _signal(phase: str) -> None:
     """Write the slide index — the teleprompter polls and advances."""
+    global _phase_started, _phase_current
     idx = _PHASE_INDEX.get(phase)
     if idx is None:
         return
+    _phase_started = time.monotonic()
+    _phase_current = phase
     try:
         with open(STATE_FILE, "w") as f:
             f.write(str(idx))
@@ -239,6 +271,7 @@ def main(skip_new: bool = False) -> int:
     ], WHITE)
 
     # ── PHASE 1: THE LAW ───────────────────────────────────────────────────
+    _hold()
     _signal("PHASE1")
     _bar("PHASE 1  —  THE LAW  (Repulsive Gravity)", RED)
     _card([
@@ -283,6 +316,7 @@ def main(skip_new: bool = False) -> int:
           f"({stats['refusal_rate']:.0%} refusal rate){RESET}")
 
     # ── PHASE 2: THE PROOF ─────────────────────────────────────────────────
+    _hold()
     _signal("PHASE2")
     _bar("PHASE 2  —  THE PROOF  (Self-Observing Equation)", BLUE)
     _card([
@@ -384,6 +418,7 @@ def main(skip_new: bool = False) -> int:
     print(f"  {DIM}  proof: {proof_b['proof_statement'][:80]}...{RESET}")
 
     # ── PHASE 3: THE BUILD ─────────────────────────────────────────────────
+    _hold()
     _signal("PHASE3")
     _bar("PHASE 3  —  THE BUILD  (THEMIS CORE deployed live)", CYAN)
     _card([
@@ -455,6 +490,7 @@ def main(skip_new: bool = False) -> int:
     CORE_SLUG = f"themis-core-{CORE_ID[:6]}"
 
     # ── PHASE 4: THE MARKET ────────────────────────────────────────────────
+    _hold()
     _signal("PHASE4")
     _bar("PHASE 4  —  THE MARKET  (Invisible Architect)", AMBER)
     _card([
@@ -488,6 +524,7 @@ def main(skip_new: bool = False) -> int:
         print(f"\r  {DIM}Marketplace listing: {str(e)[:70]}{RESET}")
 
     # ── PHASE 5: THE CALL ──────────────────────────────────────────────────
+    _hold()
     _signal("PHASE5")
     _bar("PHASE 5  —  THE CALL  (Agent-to-Agent Commerce)", GREEN)
     _card([
@@ -561,6 +598,7 @@ def main(skip_new: bool = False) -> int:
         dbg("call_workflow raw error", raw_error)
 
     # ── PHASE 6: THE LOOP ──────────────────────────────────────────────────
+    _hold()
     _signal("PHASE6")
     _bar("PHASE 6  —  THE LOOP  (Reflexive Singularity)", BLUE)
     _card([
@@ -627,6 +665,7 @@ def main(skip_new: bool = False) -> int:
     print(f"  {BLUE}{'─'*50}{RESET}")
 
     # ── PHASE 7: THE PROOF ─────────────────────────────────────────────────
+    _hold()
     _signal("PHASE7")
     _bar("PHASE 7  —  THE PROOF  (Tamper-Evident Audit Trail)", WHITE)
     _card([
@@ -660,6 +699,7 @@ def main(skip_new: bool = False) -> int:
                 print(f"  {ns_color}     node: {ns.get('nodeId','?'):<30} status: {ns.get('status','?')}{RESET}")
 
     # ── CLOSING ────────────────────────────────────────────────────────────
+    _hold()
     _signal("CLOSING")
     _bar("THEMIS", GREEN)
     print(f"""
@@ -686,6 +726,7 @@ def main(skip_new: bool = False) -> int:
   Nobody owns her. Nobody captures her.
   She becomes the law itself.{RESET}
 """)
+    _hold()   # the closing slide needs its reading time too
     return 0
 
 
@@ -697,9 +738,12 @@ if __name__ == "__main__":
                     help="Write full output to FILE (strips ANSI)")
     ap.add_argument("--no-new", action="store_true",
                     help="Skip workflow creation; use THEMIS_CORE_ID / THEMIS_GUARDIAN_ID from env")
+    ap.add_argument("--no-pause", action="store_true",
+                    help="Drop the per-slide holds (smoke test — not for recording)")
     args = ap.parse_args()
 
     DEBUG = args.debug
+    NO_PAUSE = args.no_pause
     if DEBUG:
         logging.basicConfig(level=logging.DEBUG)
         print(f"\n{DIM}[DEBUG MODE ON — all API calls and responses will be shown]{RESET}")

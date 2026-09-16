@@ -7,6 +7,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 STATE="/tmp/themis_state"
 
+TP_PID=""
+cleanup() { [ -n "$TP_PID" ] && kill "$TP_PID" 2>/dev/null || true; }
+trap cleanup EXIT
+
 # ── Load keys ─────────────────────────────────────────────────────────────
 # .env is gitignored. Nothing secret belongs in this file — it is tracked.
 if [ -f "$ENV_FILE" ]; then
@@ -68,14 +72,35 @@ if let s = NSScreen.main {
 read -r SCREEN_W SCREEN_H HALF_W MENU_H <<< "$SCREEN_INFO"
 
 # ── Position THIS terminal window on the LEFT half ────────────────────────
+# Target our OWN window by tty. "front window" is a coin flip on a machine with
+# dozens of Terminal windows open, and picking the wrong one both mispositions
+# the demo and restyles something you were using.
+MY_TTY="$(tty 2>/dev/null)"
 osascript <<EOF >/dev/null 2>&1
 tell application "Terminal"
     activate
-    set bounds of front window to {0, $MENU_H, $HALF_W, $SCREEN_H}
+    set target to missing value
+    repeat with w in windows
+        repeat with t in tabs of w
+            try
+                if tty of t is "$MY_TTY" then set target to w
+            end try
+        end repeat
+    end repeat
+    if target is missing value then set target to front window
+    set bounds of target to {0, $MENU_H, $HALF_W, $SCREEN_H}
     try
-        set current settings of front window to settings set "Pro"
+        set current settings of target to settings set "Pro"
     end try
-    set font size of front window to 14
+    -- Opaque black. A see-through window puts whatever is behind it into the
+    -- recording, which is what "Pro" does by default.
+    try
+        set background color of target to {0, 0, 0, 65535}
+    end try
+    try
+        set font size of target to 14
+    end try
+    set frontmost of target to true
 end tell
 EOF
 
@@ -102,24 +127,24 @@ if [ "$NO_TP" -eq 0 ] && [ -f "$SCRIPT_DIR/teleprompter.swift" ]; then
     if [ ! -x "$SCRIPT_DIR/teleprompter" ] || \
        [ "$SCRIPT_DIR/teleprompter.swift" -nt "$SCRIPT_DIR/teleprompter" ]; then
         echo "  Building teleprompter…"
-        swiftc -O -o "$SCRIPT_DIR/teleprompter" "$SCRIPT_DIR/teleprompter.swift" \
-            2>/tmp/themis_teleprompter_build.log \
+        swiftc "$SCRIPT_DIR/teleprompter.swift" -o "$SCRIPT_DIR/teleprompter" \
+            -framework Cocoa 2>/tmp/themis_teleprompter_build.log \
             || echo "  (teleprompter build failed — see /tmp/themis_teleprompter_build.log)"
     fi
 fi
 
 # ── Launch Swift teleprompter (positions itself on the RIGHT half) ─────────
-TP_PID=""
 if [ -x "$SCRIPT_DIR/teleprompter" ] && [ "$NO_TP" -eq 0 ]; then
     "$SCRIPT_DIR/teleprompter" "$STATE" 2>/tmp/themis_teleprompter.log &
     TP_PID=$!
-    sleep 0.5
+    sleep 1.5   # let the window appear before the banner draws
 fi
 
 # ── Keep focus on Terminal ─────────────────────────────────────────────────
 osascript -e 'tell application "Terminal" to activate' >/dev/null 2>&1
 
 # ── Clean banner hold — ENTER starts all 3 (Demo + Prompter + Recording) ───
+clear
 echo ""
 echo "  ╔══════════════════════════════════════════════════════════════════╗"
 echo "  ║   THEMIS  ·  KeeperHub Agent Economy Hackathon                   ║"
