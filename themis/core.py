@@ -63,6 +63,7 @@ def build_themis_core(
     chain_id: str = SEPOLIA,
     risk_tolerance: str = "STANDARD",   # CONSERVATIVE | STANDARD | AGGRESSIVE
     time_horizon: str = "SHORT",        # SHORT | MEDIUM | LONG
+    quiet: bool = False,
 ) -> dict:
     """
     Build and register THEMIS CORE on KeeperHub.
@@ -95,9 +96,10 @@ def build_themis_core(
     aave_actions = client._parse(client.call_tool(
         "search_protocol_actions", {"protocol": "aave-v3"}
     ))
-    log.info(f"Chronicle actions: {len(chronicle_actions.get('actions', []))}")
-    log.info(f"Chainlink actions: {len(chainlink_actions.get('actions', []))}")
-    log.info(f"Aave V3 actions: {len(aave_actions.get('actions', []))}")
+    if not quiet:
+        log.info(f"Chronicle actions: {len(chronicle_actions.get('actions', []))}")
+        log.info(f"Chainlink actions: {len(chainlink_actions.get('actions', []))}")
+        log.info(f"Aave V3 actions: {len(aave_actions.get('actions', []))}")
 
     nodes = [
         # ── INTEGRITY GATE (Repulsive Gravity) ────────────────────────────
@@ -238,7 +240,8 @@ def build_themis_core(
     )
 
     # Create
-    print(f"\nCreating THEMIS CORE...")
+    if not quiet:
+        print(f"\nCreating THEMIS CORE...")
     result = client.create_workflow(
         name=name,
         description=description,
@@ -251,20 +254,30 @@ def build_themis_core(
 
     # Validate AFTER create — validate_workflow requires an existing workflowId
     # Self-Observing Equation: the workflow proves itself by existing and being valid
-    print(f"\nValidating THEMIS CORE (Self-Observing Equation)...")
+    if not quiet:
+        print(f"\nValidating THEMIS CORE (Self-Observing Equation)...")
     validation = client._parse(client.call_tool(
         "validate_workflow", {"workflowId": workflow_id, "deepCheck": True}
     ))
-    print(f"Validation: {json.dumps(validation, indent=2, default=str)[:400]}")
+    if not quiet:
+        print(f"Validation: {json.dumps(validation, indent=2, default=str)[:400]}")
 
-    print(f"\n⚖️  THEMIS CORE deployed.")
-    print(f"   Workflow ID:  {workflow_id}")
-    print(f"   URL:          {workflow_url}")
-    print(f"   Position:     {position_owner}")
-    print(f"   Chain:        {chain_id}")
-    print(f"   Risk:         {risk_tolerance}")
-    print(f"   Horizon:      {time_horizon}")
-    print(f"   Layers:       5 (Chronicle → Chainlink → Aave → Consistency → Verdict)")
+    if not quiet:
+        print(f"\n⚖️  THEMIS CORE deployed.")
+    if not quiet:
+        print(f"   Workflow ID:  {workflow_id}")
+    if not quiet:
+        print(f"   URL:          {workflow_url}")
+    if not quiet:
+        print(f"   Position:     {position_owner}")
+    if not quiet:
+        print(f"   Chain:        {chain_id}")
+    if not quiet:
+        print(f"   Risk:         {risk_tolerance}")
+    if not quiet:
+        print(f"   Horizon:      {time_horizon}")
+    if not quiet:
+        print(f"   Layers:       5 (Chronicle → Chainlink → Aave → Consistency → Verdict)")
 
     return {
         "workflow_id":      workflow_id,

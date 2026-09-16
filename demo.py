@@ -334,6 +334,7 @@ def main(skip_new: bool = False) -> int:
                     chain_id       = CHAIN_ID,
                     risk_tolerance = "STANDARD",
                     time_horizon   = "SHORT",
+                    quiet          = True,
                 )
             CORE_ID = core["workflow_id"]
             dbg("build_themis_core result", core)
@@ -491,6 +492,7 @@ def main(skip_new: bool = False) -> int:
                     safe_address     = SAFE_ADDRESS,
                     themis_core_slug = CORE_SLUG,
                     chain_id         = CHAIN_ID,
+                    quiet            = True,
                 )
             GUARDIAN_ID = guardian["workflow_id"]
             dbg("build_themis_guardian result", guardian)

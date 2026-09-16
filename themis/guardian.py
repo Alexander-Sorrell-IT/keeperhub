@@ -37,6 +37,7 @@ def build_themis_guardian(
     withdraw_amount: str = "1000000",       # 1 USDC (6 decimals)
     schedule_cron: str = "*/5 * * * *",    # every 5 minutes
     chain_id: str = SEPOLIA,
+    quiet: bool = False,
 ) -> dict:
     """
     Build THEMIS GUARDIAN — the agent that calls THEMIS CORE.
@@ -139,7 +140,8 @@ def build_themis_guardian(
         f"Guardian for: {position_owner} | Safe: {safe_address}"
     )
 
-    print(f"\nCreating THEMIS GUARDIAN...")
+    if not quiet:
+        print(f"\nCreating THEMIS GUARDIAN...")
     result = client.create_workflow(
         name=name,
         description=description,
@@ -151,20 +153,30 @@ def build_themis_guardian(
     workflow_url = f"https://app.keeperhub.com/workflows/{workflow_id}"
 
     # Validate after create (requires workflowId)
-    print(f"\nValidating THEMIS GUARDIAN...")
+    if not quiet:
+        print(f"\nValidating THEMIS GUARDIAN...")
     validation = client._parse(client.call_tool(
         "validate_workflow", {"workflowId": workflow_id, "deepCheck": True}
     ))
-    print(f"Validation: {json.dumps(validation, indent=2, default=str)[:400]}")
+    if not quiet:
+        print(f"Validation: {json.dumps(validation, indent=2, default=str)[:400]}")
 
-    print(f"\n🛡️  THEMIS GUARDIAN deployed.")
-    print(f"   Workflow ID:    {workflow_id}")
-    print(f"   URL:            {workflow_url}")
-    print(f"   Position:       {position_owner}")
-    print(f"   Safe address:   {safe_address}")
-    print(f"   THEMIS CORE:    {themis_core_slug}")
-    print(f"   Schedule:       every 5 minutes")
-    print(f"   Loop:           THEMIS reads → Guardian acts → THEMIS re-reads")
+    if not quiet:
+        print(f"\n🛡️  THEMIS GUARDIAN deployed.")
+    if not quiet:
+        print(f"   Workflow ID:    {workflow_id}")
+    if not quiet:
+        print(f"   URL:            {workflow_url}")
+    if not quiet:
+        print(f"   Position:       {position_owner}")
+    if not quiet:
+        print(f"   Safe address:   {safe_address}")
+    if not quiet:
+        print(f"   THEMIS CORE:    {themis_core_slug}")
+    if not quiet:
+        print(f"   Schedule:       every 5 minutes")
+    if not quiet:
+        print(f"   Loop:           THEMIS reads → Guardian acts → THEMIS re-reads")
 
     return {
         "workflow_id":  workflow_id,
