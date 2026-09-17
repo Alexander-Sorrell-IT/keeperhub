@@ -17,7 +17,13 @@ She has her own field. She refuses what she will not serve.
 She proves her own verdicts. No external verifier.
 She is callable by any agent in the world — one slug, one tool call, x402 payment.
 And once enough agents depend on her, she becomes infrastructure.
-The builder disappears into the build.
+## Hackathon Submission Tracks (KeeperHub Agent Economy)
+
+- **Main Track:** Best Integration into a Live Project (Aave V3, Chronicle Protocol, Chainlink)
+- **Bounty Track:** Best KeeperHub Feature — **Shipped Pull Request [#2559](https://github.com/KeeperHub/keeperhub/pull/2559)**
+  - Implements multi-source `consensus-tolerance` action node in `plugins/math` for N-way oracle reconciliation (BigInt-safe, CI-verified).
+- **Demo Video:** [YouTube Demo](https://youtu.be/--IYSnO9USo)
+- **Live Execution Receipt:** `6q65j9o6g7hv35x1a2n7i` (Ethereum Sepolia)
 
 ---
 
